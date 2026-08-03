@@ -1,0 +1,48 @@
+name: Triage Renovate Notifications
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+permissions: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  triage:
+    name: Mark Auto-Merge Notifications Done
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Mark Auto-Merge Renovate Notifications Done
+        env:
+          GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          notifications=$(
+            gh api --paginate "/notifications?all=false&per_page=50" \
+              --jq '.[] |
+                select(.subject.type == "PullRequest") |
+                [.id, .subject.url] |
+                @tsv'
+          )
+
+          while IFS=$'\t' read -r thread_id subject_url; do
+            if [[ -z "$thread_id" ]]; then
+              continue
+            fi
+
+            pull_request=$(gh api "$subject_url")
+            author=$(jq -r '.user.login' <<< "$pull_request")
+            auto_merge=$(jq -r '.auto_merge != null' <<< "$pull_request")
+
+            if [[ "$author" != "renovate[bot]" || "$auto_merge" != "true" ]]; then
+              continue
+            fi
+
+            gh api --method DELETE "/notifications/threads/$thread_id"
+            printf 'Marked done: %s\n' "$subject_url"
+          done <<< "$notifications"
