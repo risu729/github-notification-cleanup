@@ -1,0 +1,15 @@
+amends "https://raw.githubusercontent.com/risu729/hk-config/v1.1.0/presets.pkl"
+
+import "https://raw.githubusercontent.com/risu729/hk-config/v1.1.0/helpers.pkl"
+
+hooks =
+  helpers.standardHooks(
+    helpers.pick(new Listing {
+      "github-actions"
+      "rumdl"
+      "yaml"
+      "mise"
+      "betterleaks"
+      "hygiene"
+    }),
+  )

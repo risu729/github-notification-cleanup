@@ -1,7 +1,7 @@
 name: Triage Renovate Notifications
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "7/10 * * * *"
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}
@@ -31,18 +31,18 @@ jobs:
           )
 
           while IFS=$'\t' read -r thread_id subject_url; do
-            if [[ -z "$thread_id" ]]; then
+            if [[ -z "${thread_id}" ]]; then
               continue
             fi
 
-            pull_request=$(gh api "$subject_url")
-            author=$(jq -r '.user.login' <<< "$pull_request")
-            auto_merge=$(jq -r '.auto_merge != null' <<< "$pull_request")
+            pull_request=$(gh api "${subject_url}")
+            author=$(jq -r '.user.login' <<< "${pull_request}")
+            auto_merge=$(jq -r '.auto_merge != null' <<< "${pull_request}")
 
-            if [[ "$author" != "renovate[bot]" || "$auto_merge" != "true" ]]; then
+            if [[ "${author}" != "renovate[bot]" || "${auto_merge}" != "true" ]]; then
               continue
             fi
 
-            gh api --method DELETE "/notifications/threads/$thread_id"
-            printf 'Marked done: %s\n' "$subject_url"
-          done <<< "$notifications"
+            gh api --method DELETE "/notifications/threads/${thread_id}"
+            printf 'Marked done: %s\n' "${subject_url}"
+          done <<< "${notifications}"
