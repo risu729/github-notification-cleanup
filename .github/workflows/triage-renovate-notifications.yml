@@ -55,7 +55,7 @@ jobs:
         env:
           CACHE_KEY: ${{ steps.notification-cache.outputs.cache-matched-key }}
           GH_TOKEN: ${{ github.token }}
-        run: gh cache delete "${CACHE_KEY}" --confirm
+        run: gh cache delete "${CACHE_KEY}"
   actions-timeline:
     name: Generate Actions Timeline
     needs:
