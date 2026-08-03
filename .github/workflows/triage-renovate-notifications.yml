@@ -48,8 +48,20 @@ jobs:
           GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
         run: mise run triage
       - name: Save Notification State
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/triage-renovate-notifications.json
           key: ${{ steps.notification-cache.outputs.cache-primary-key }}
+  actions-timeline:
+    name: Generate Actions Timeline
+    needs:
+      - triage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # for actions-timeline
+    steps:
+      - name: actions-timeline
+        uses: Kesin11/actions-timeline@57fc93f20c6da7fbc14063c6d24a2a5627c799ad # v3.2.0
