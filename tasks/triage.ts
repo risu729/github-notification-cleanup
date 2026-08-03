@@ -11,11 +11,9 @@ import { Octokit } from "@octokit/rest";
 const apiOrigin = "https://api.github.com";
 const cachePath = ".cache/notification-state.json";
 const codeRabbitBotId = 136_622_811;
-const currentUserId = 79_110_363;
 const greptileBotId = 165_735_046;
 const sourceryBotId = 58_596_630;
 const ignoredAiReviewerIds = new Set([codeRabbitBotId, greptileBotId, sourceryBotId]);
-const ignoredActorIds = new Set([currentUserId, ...ignoredAiReviewerIds]);
 const ignoredReviewEvents = new Set([
   "commented",
   "commit-commented",
@@ -165,9 +163,11 @@ const isAfter = (value: string | undefined, boundary: string): boolean | undefin
 export const hasOnlyIgnoredActivities = async (
   events: unknown[],
   lastReadAt: string | null,
+  currentUserId: number,
   loadCommitActorIds: CommitActorLoader,
 ): Promise<boolean> => {
   const activityBoundary = lastReadAt ?? "1970-01-01T00:00:00Z";
+  const ignoredActorIds = new Set([currentUserId, ...ignoredAiReviewerIds]);
   let foundIgnoredAiReview = false;
   for (const event of events) {
     for (const activity of getTimelineActivities(event)) {
@@ -217,6 +217,7 @@ const hasOnlyIgnoredReviewActivity = async (
   octokit: Octokit,
   coordinates: PullRequestCoordinates,
   lastReadAt: string | null,
+  currentUserId: number,
 ): Promise<boolean> => {
   const { owner, pullNumber, repo } = coordinates;
   const events = await octokit.paginate(octokit.rest.issues.listEventsForTimeline, {
@@ -225,7 +226,7 @@ const hasOnlyIgnoredReviewActivity = async (
     per_page: 100,
     repo,
   });
-  return await hasOnlyIgnoredActivities(events, lastReadAt, async (sha) => {
+  return await hasOnlyIgnoredActivities(events, lastReadAt, currentUserId, async (sha) => {
     const { data: commit } = await octokit.rest.repos.getCommit({
       owner,
       ref: sha,
@@ -318,6 +319,7 @@ const main = async (): Promise<void> => {
       auth: Bun.env["GH_TOKEN"],
       userAgent: "github-notification-cleanup",
     });
+    const { data: authenticatedUser } = await octokit.rest.users.getAuthenticated();
     const notifications = await octokit.paginate(
       octokit.rest.activity.listNotificationsForAuthenticatedUser,
       {
@@ -347,7 +349,12 @@ const main = async (): Promise<void> => {
         pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null;
       const isIgnoredAiReview =
         !isRenovateAutoMerge &&
-        (await hasOnlyIgnoredReviewActivity(octokit, coordinates, notification.last_read_at));
+        (await hasOnlyIgnoredReviewActivity(
+          octokit,
+          coordinates,
+          notification.last_read_at,
+          authenticatedUser.id,
+        ));
       if (!isRenovateAutoMerge && !isIgnoredAiReview) {
         summary.retained += 1;
         continue;

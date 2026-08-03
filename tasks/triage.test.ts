@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { hasOnlyIgnoredActivities } from "./triage";
+import { hasOnlyIgnoredActivities as classifyActivities } from "./triage";
 
 const aiReviewerId = 136_622_811;
 const currentUserId = 79_110_363;
@@ -26,6 +26,13 @@ const commit = (committedAt: string): unknown => ({
 });
 
 const noCommitActors = async (): Promise<number[]> => [];
+const hasOnlyIgnoredActivities = async (
+  events: unknown[],
+  lastReadAt: string | null,
+  loadCommitActorIds: (sha: string) => Promise<number[]>,
+): Promise<boolean> => {
+  return await classifyActivities(events, lastReadAt, currentUserId, loadCommitActorIds);
+};
 
 describe("AI review notification suppression", () => {
   test("suppresses an AI-only comment after the thread was read", async () => {

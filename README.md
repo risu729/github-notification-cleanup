@@ -17,10 +17,12 @@ A notification is marked done when either:
   timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
   one of those events is an AI comment or review.
 
-The actor checks use immutable GitHub IDs. With no read timestamp, the entire
-timeline is checked. An unknown event, unattributable actor, or activity from
-anyone else retains the notification. The thread is fetched again immediately
-before it is marked done so a concurrent update also retains it.
+The actor checks use immutable GitHub IDs. The current user ID is retrieved from
+the authenticated `GH_TOKEN`; the AI reviewer IDs are fixed. With no read
+timestamp, the entire timeline is checked. An unknown event, unattributable
+actor, or activity from anyone else retains the notification. The thread is
+fetched again immediately before it is marked done so a concurrent update also
+retains it.
 
 Only comments, reviews, commits, and cross-references attributable to `risu729`
 are eligible for AI-review suppression. Other timeline activity retains the
