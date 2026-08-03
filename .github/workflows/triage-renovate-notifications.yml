@@ -1,0 +1,70 @@
+name: Triage Renovate Notifications
+on:
+  schedule:
+    - cron: "7/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Recheck every unread pull request notification
+        type: boolean
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+permissions: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  triage:
+    name: Mark Auto-Merge Notifications Done
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: write # for notification state cache
+      contents: read # for checkout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          version: 2026.8.0
+        env:
+          MISE_ENABLE_TOOLS: bun
+      - name: Restore Notification State
+        id: notification-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/notification-state.json
+          key: renovate-notification-state-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: renovate-notification-state-${{ github.ref_name }}-
+      - name: Mark Auto-Merge Renovate Notifications Done
+        env:
+          FORCE_CHECK_ALL: ${{ inputs.force }}
+          GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
+        run: mise run triage
+      - name: Save Notification State
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/notification-state.json
+          key: ${{ steps.notification-cache.outputs.cache-primary-key }}
+      - name: Delete Previous Notification State
+        if: ${{ steps.notification-cache.outputs.cache-matched-key != '' }}
+        env:
+          CACHE_KEY: ${{ steps.notification-cache.outputs.cache-matched-key }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh cache delete "${CACHE_KEY}" --confirm
+  actions-timeline:
+    name: Generate Actions Timeline
+    needs:
+      - triage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # for actions-timeline
+    steps:
+      - name: actions-timeline
+        uses: Kesin11/actions-timeline@57fc93f20c6da7fbc14063c6d24a2a5627c799ad # v3.2.0
