@@ -3,6 +3,12 @@ on:
   schedule:
     - cron: "7/10 * * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: Recheck every unread pull request notification
+        required: false
+        default: false
+        type: boolean
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
@@ -28,7 +34,22 @@ jobs:
           version: 2026.8.0
         env:
           MISE_ENABLE_TOOLS: bun
+      - name: Restore Notification State
+        id: notification-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/triage-renovate-notifications.json
+          key: renovate-notification-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: renovate-notification-state-
       - name: Mark Auto-Merge Renovate Notifications Done
+        id: triage
         env:
+          FORCE_CHECK_ALL: ${{ inputs.force }}
           GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
-        run: bun run src/triage-renovate-notifications.ts
+        run: mise run triage
+      - name: Save Notification State
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/triage-renovate-notifications.json
+          key: ${{ steps.notification-cache.outputs.cache-primary-key }}

@@ -39,3 +39,11 @@ hk \
   --all --no-progress --no-fail-fast
 """
 description = "Run hk linters and formatters."
+
+[tasks.triage]
+description = "Triage unread Renovate notifications."
+usage = '''
+flag "--force" env="FORCE_CHECK_ALL" help="Recheck every unread pull request notification"
+'''
+env = { GH_TOKEN = { required = "Set GH_TOKEN to a classic PAT with the notifications scope" } }
+run = "bun run src/triage-renovate-notifications.ts {% if usage.force %}--force{% endif %}"

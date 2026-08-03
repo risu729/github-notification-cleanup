@@ -5,7 +5,10 @@ manual attention.
 
 ## Behavior
 
-The workflow runs every 10 minutes and can also be started manually.
+The workflow runs every 10 minutes and can also be started manually. It caches
+unchanged notification IDs and update timestamps between runs, avoiding repeat
+API calls for pull requests that still need manual attention. Use the manual
+workflow's `force` option to recheck every unread pull request notification.
 For each unread pull request notification, it:
 
 1. fetches the referenced pull request;
@@ -36,6 +39,14 @@ Run the repository checks with:
 ```sh
 mise run check --lint
 ```
+
+Run notification triage locally with a suitable token:
+
+```sh
+GH_TOKEN=... mise run triage
+```
+
+Pass `--force` to bypass the notification-state cache.
 
 The notification cleanup is implemented in TypeScript and runs with Bun. The
 checks use [hk](https://github.com/jdx/hk) to type-check, lint, and format the
