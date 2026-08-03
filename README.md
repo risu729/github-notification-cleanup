@@ -37,5 +37,7 @@ Run the repository checks with:
 mise run check --lint
 ```
 
-The checks use [hk](https://github.com/jdx/hk) to validate and audit the
-workflows, embedded shell scripts, YAML, Markdown, and repository hygiene.
+The notification cleanup is implemented in TypeScript and runs with Bun. The
+checks use [hk](https://github.com/jdx/hk) to type-check, lint, and format the
+TypeScript and to validate the workflows, YAML, Markdown, and repository
+hygiene.

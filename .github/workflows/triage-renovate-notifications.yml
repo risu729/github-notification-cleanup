@@ -15,32 +15,20 @@ jobs:
     name: Mark Auto-Merge Notifications Done
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read # for checkout
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          version: 2026.8.0
+        env:
+          MISE_ENABLE_TOOLS: bun
       - name: Mark Auto-Merge Renovate Notifications Done
         env:
           GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
-        run: |
-          notifications=$(
-            gh api --paginate "/notifications?all=false&per_page=50" \
-              --jq '.[] |
-                select(.subject.type == "PullRequest") |
-                [.id, .subject.url] |
-                @tsv'
-          )
-
-          while IFS=$'\t' read -r thread_id subject_url; do
-            if [[ -z "${thread_id}" ]]; then
-              continue
-            fi
-
-            pull_request=$(gh api "${subject_url}")
-            author=$(jq -r '.user.login' <<< "${pull_request}")
-            auto_merge=$(jq -r '.auto_merge != null' <<< "${pull_request}")
-
-            if [[ "${author}" != "renovate[bot]" || "${auto_merge}" != "true" ]]; then
-              continue
-            fi
-
-            gh api --method DELETE "/notifications/threads/${thread_id}"
-            printf 'Marked done: %s\n' "${subject_url}"
-          done <<< "${notifications}"
+        run: bun run src/triage-renovate-notifications.ts
