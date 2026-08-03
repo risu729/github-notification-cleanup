@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-//MISE description="Triage unread Renovate notifications."
+//MISE description="Triage Renovate notifications."
 //MISE env={GH_TOKEN={required="Set GH_TOKEN to a classic PAT with the notifications scope"}}
-//USAGE flag "--force" env="FORCE_CHECK_ALL" help="Recheck every unread pull request notification"
+//USAGE flag "--force" env="FORCE_CHECK_ALL" help="Recheck every read and unread pull request notification"
 
 import { mkdir } from "node:fs/promises";
 
@@ -92,7 +92,7 @@ const saveState = async (state: NotificationState): Promise<void> => {
 const printSummary = (summary: Summary, force: boolean, since: string | undefined): void => {
   console.log("Summary:");
   console.log(`  force recheck: ${force}`);
-  console.log(`  checked since: ${since ?? "all unread notifications"}`);
+  console.log(`  checked since: ${since ?? "all read and unread notifications"}`);
   console.log(`  notifications parsed: ${summary.notifications}`);
   console.log(`  pull request notifications: ${summary.pullRequests}`);
   console.log(`  pull requests evaluated: ${summary.evaluated}`);
@@ -142,6 +142,7 @@ const main = async (): Promise<void> => {
     const notifications = await octokit.paginate(
       octokit.rest.activity.listNotificationsForAuthenticatedUser,
       {
+        all: true,
         per_page: 100,
         since,
       },
