@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
+      actions: write # for notification state cache
       contents: read # for checkout
     steps:
       - name: Checkout
@@ -38,9 +39,9 @@ jobs:
         id: notification-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/triage-renovate-notifications.json
-          key: renovate-notification-state-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: renovate-notification-state-
+          path: .cache/last-checked-at
+          key: renovate-notification-state-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: renovate-notification-state-${{ github.ref_name }}-
       - name: Mark Auto-Merge Renovate Notifications Done
         id: triage
         env:
@@ -48,11 +49,16 @@ jobs:
           GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
         run: mise run triage
       - name: Save Notification State
-        if: ${{ !cancelled() }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/triage-renovate-notifications.json
+          path: .cache/last-checked-at
           key: ${{ steps.notification-cache.outputs.cache-primary-key }}
+      - name: Delete Previous Notification State
+        if: ${{ steps.notification-cache.outputs.cache-matched-key != '' }}
+        env:
+          CACHE_KEY: ${{ steps.notification-cache.outputs.cache-matched-key }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh cache delete "${CACHE_KEY}" --confirm
   actions-timeline:
     name: Generate Actions Timeline
     needs:

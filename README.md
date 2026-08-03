@@ -6,9 +6,9 @@ manual attention.
 ## Behavior
 
 The workflow runs every 10 minutes and can also be started manually. It caches
-unchanged notification IDs and update timestamps between runs, avoiding repeat
-API calls for pull requests that still need manual attention. Use the manual
-workflow's `force` option to recheck every unread pull request notification.
+the last successful check time and requests only notifications updated since
+then. Use the manual workflow's `force` option to recheck every unread pull
+request notification.
 For each unread pull request notification, it:
 
 1. fetches the referenced pull request;

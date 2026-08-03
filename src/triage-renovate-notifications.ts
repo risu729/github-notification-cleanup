@@ -4,10 +4,8 @@ import { RequestError } from "@octokit/request-error";
 import { Octokit } from "@octokit/rest";
 
 const apiOrigin = "https://api.github.com";
-const cachePath = ".cache/triage-renovate-notifications.json";
+const cachePath = ".cache/last-checked-at";
 const renovateBotId = 29_139_614;
-
-type NotificationCache = Record<string, string>;
 
 type PullRequestCoordinates = {
   owner: string;
@@ -16,7 +14,6 @@ type PullRequestCoordinates = {
 };
 
 type Summary = {
-  cached: number;
   evaluated: number;
   markedDone: number;
   notifications: number;
@@ -50,40 +47,31 @@ const parseThreadId = (id: string): number => {
   return threadId;
 };
 
-const loadCache = async (): Promise<NotificationCache> => {
+const loadLastCheckedAt = async (): Promise<string | undefined> => {
   const file = Bun.file(cachePath);
   if (!(await file.exists())) {
-    return {};
+    return undefined;
   }
 
-  try {
-    const value: unknown = await file.json();
-    if (
-      typeof value !== "object" ||
-      value === null ||
-      Array.isArray(value) ||
-      !Object.values(value).every((entry) => typeof entry === "string")
-    ) {
-      throw new Error("cache must be an object with string values");
-    }
-    return value as NotificationCache;
-  } catch (error) {
-    console.warn(`Ignoring invalid notification cache: ${String(error)}`);
-    return {};
+  const value = (await file.text()).trim();
+  if (value === "" || !Number.isFinite(Date.parse(value))) {
+    console.warn("Ignoring invalid last-check timestamp");
+    return undefined;
   }
+  return value;
 };
 
-const saveCache = async (cache: NotificationCache): Promise<void> => {
+const saveLastCheckedAt = async (value: string): Promise<void> => {
   await mkdir(".cache", { recursive: true });
-  await Bun.write(cachePath, `${JSON.stringify(cache, undefined, 2)}\n`);
+  await Bun.write(cachePath, `${value}\n`);
 };
 
-const printSummary = (summary: Summary, force: boolean): void => {
+const printSummary = (summary: Summary, force: boolean, since: string | undefined): void => {
   console.log("Summary:");
   console.log(`  force recheck: ${force}`);
+  console.log(`  checked since: ${since ?? "all unread notifications"}`);
   console.log(`  notifications parsed: ${summary.notifications}`);
   console.log(`  pull request notifications: ${summary.pullRequests}`);
-  console.log(`  unchanged cached notifications: ${summary.cached}`);
   console.log(`  pull requests evaluated: ${summary.evaluated}`);
   console.log(`  notifications marked done: ${summary.markedDone}`);
   console.log(`  notifications retained: ${summary.retained}`);
@@ -127,18 +115,15 @@ const main = async (): Promise<void> => {
   }
 
   const force = parseForce();
-  const previousCache = await loadCache();
-  const nextCache = { ...previousCache };
-  const activeNotificationIds = new Set<string>();
+  const since = force ? undefined : await loadLastCheckedAt();
+  const startedAt = new Date().toISOString();
   const summary: Summary = {
-    cached: 0,
     evaluated: 0,
     markedDone: 0,
     notifications: 0,
     pullRequests: 0,
     retained: 0,
   };
-  let completed = false;
 
   try {
     const octokit = new Octokit({
@@ -147,7 +132,11 @@ const main = async (): Promise<void> => {
     });
     const notifications = await octokit.paginate(
       octokit.rest.activity.listNotificationsForAuthenticatedUser,
-      { all: false, per_page: 100 },
+      {
+        all: false,
+        per_page: 100,
+        since,
+      },
     );
     summary.notifications = notifications.length;
 
@@ -157,13 +146,6 @@ const main = async (): Promise<void> => {
       }
 
       summary.pullRequests += 1;
-      activeNotificationIds.add(notification.id);
-      const fingerprint = `${notification.updated_at}\n${notification.subject.url}`;
-      if (!force && previousCache[notification.id] === fingerprint) {
-        summary.cached += 1;
-        continue;
-      }
-
       const { owner, pullNumber, repo } = parsePullRequestUrl(notification.subject.url);
       const { data: pullRequest } = await octokit.rest.pulls.get({
         owner,
@@ -173,7 +155,6 @@ const main = async (): Promise<void> => {
       summary.evaluated += 1;
 
       if (pullRequest.user?.id !== renovateBotId || pullRequest.auto_merge === null) {
-        nextCache[notification.id] = fingerprint;
         summary.retained += 1;
         continue;
       }
@@ -181,22 +162,13 @@ const main = async (): Promise<void> => {
       await octokit.rest.activity.markThreadAsDone({
         thread_id: parseThreadId(notification.id),
       });
-      delete nextCache[notification.id];
       summary.markedDone += 1;
       console.log(`Marked done: ${pullRequest.html_url}`);
     }
 
-    completed = true;
+    await saveLastCheckedAt(startedAt);
   } finally {
-    if (completed) {
-      for (const id of Object.keys(nextCache)) {
-        if (!activeNotificationIds.has(id)) {
-          delete nextCache[id];
-        }
-      }
-    }
-    await saveCache(nextCache);
-    printSummary(summary, force);
+    printSummary(summary, force, since);
   }
 };
 
