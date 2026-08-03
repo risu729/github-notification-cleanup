@@ -1,11 +1,20 @@
+#!/usr/bin/env bun
+//MISE description="Triage unread Renovate notifications."
+//MISE env={GH_TOKEN={required="Set GH_TOKEN to a classic PAT with the notifications scope"}}
+//USAGE flag "--force" env="FORCE_CHECK_ALL" help="Recheck every unread pull request notification"
+
 import { mkdir } from "node:fs/promises";
 
 import { RequestError } from "@octokit/request-error";
 import { Octokit } from "@octokit/rest";
 
 const apiOrigin = "https://api.github.com";
-const cachePath = ".cache/last-checked-at";
+const cachePath = ".cache/notification-state.json";
 const renovateBotId = 29_139_614;
+
+type NotificationState = {
+  lastCheckedAt: string;
+};
 
 type PullRequestCoordinates = {
   owner: string;
@@ -47,23 +56,37 @@ const parseThreadId = (id: string): number => {
   return threadId;
 };
 
-const loadLastCheckedAt = async (): Promise<string | undefined> => {
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const loadState = async (): Promise<NotificationState | undefined> => {
   const file = Bun.file(cachePath);
   if (!(await file.exists())) {
     return undefined;
   }
 
-  const value = (await file.text()).trim();
-  if (value === "" || !Number.isFinite(Date.parse(value))) {
-    console.warn("Ignoring invalid last-check timestamp");
+  let value: unknown;
+  try {
+    value = await file.json();
+  } catch {
+    console.warn("Ignoring malformed notification state JSON");
     return undefined;
   }
-  return value;
+  if (
+    !isRecord(value) ||
+    typeof value["lastCheckedAt"] !== "string" ||
+    !Number.isFinite(Date.parse(value["lastCheckedAt"]))
+  ) {
+    console.warn("Ignoring invalid notification state");
+    return undefined;
+  }
+  return { lastCheckedAt: value["lastCheckedAt"] };
 };
 
-const saveLastCheckedAt = async (value: string): Promise<void> => {
+const saveState = async (state: NotificationState): Promise<void> => {
   await mkdir(".cache", { recursive: true });
-  await Bun.write(cachePath, `${value}\n`);
+  await Bun.write(cachePath, `${JSON.stringify(state, undefined, 2)}\n`);
 };
 
 const printSummary = (summary: Summary, force: boolean, since: string | undefined): void => {
@@ -98,24 +121,15 @@ const rateLimitMessage = (error: RequestError): string | undefined => {
   return "GitHub rate limit exceeded; retry after the limit resets";
 };
 
-const parseForce = (): boolean => {
-  const arguments_ = Bun.argv.slice(2);
-  if (arguments_.some((argument) => argument !== "--force")) {
-    throw new Error(
-      `Unexpected argument: ${arguments_.find((argument) => argument !== "--force")}`,
-    );
-  }
-  return arguments_.includes("--force");
-};
-
 const main = async (): Promise<void> => {
   const token = Bun.env["GH_TOKEN"];
   if (!token) {
     throw new Error("GH_TOKEN is required");
   }
 
-  const force = parseForce();
-  const since = force ? undefined : await loadLastCheckedAt();
+  const force = Bun.env["usage_force"] === "true";
+  const state = force ? undefined : await loadState();
+  const since = state?.lastCheckedAt;
   const startedAt = new Date().toISOString();
   const summary: Summary = {
     evaluated: 0,
@@ -166,7 +180,7 @@ const main = async (): Promise<void> => {
       console.log(`Marked done: ${pullRequest.html_url}`);
     }
 
-    await saveLastCheckedAt(startedAt);
+    await saveState({ lastCheckedAt: startedAt });
   } finally {
     printSummary(summary, force, since);
   }
