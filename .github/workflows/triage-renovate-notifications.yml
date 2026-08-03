@@ -6,8 +6,6 @@ on:
     inputs:
       force:
         description: Recheck every unread pull request notification
-        required: false
-        default: false
         type: boolean
 concurrency:
   group: ${{ github.workflow }}
@@ -43,7 +41,6 @@ jobs:
           key: renovate-notification-state-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: renovate-notification-state-${{ github.ref_name }}-
       - name: Mark Auto-Merge Renovate Notifications Done
-        id: triage
         env:
           FORCE_CHECK_ALL: ${{ inputs.force }}
           GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}

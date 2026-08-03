@@ -2,7 +2,6 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "github-notification-cleanup",
   "private": true,
-  "type": "module",
   "dependencies": {
     "@octokit/request-error": "7.1.1",
     "@octokit/rest": "22.0.1"

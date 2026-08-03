@@ -12,7 +12,7 @@ recheck every unread pull request notification.
 For each unread pull request notification, it:
 
 1. fetches the referenced pull request;
-2. confirms that its author is `renovate[bot]`;
+2. confirms that its author ID matches the Renovate bot;
 3. checks that GitHub auto-merge is enabled; and
 4. marks the notification as done.
 

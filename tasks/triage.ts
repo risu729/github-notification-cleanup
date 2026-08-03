@@ -57,7 +57,7 @@ const parseThreadId = (id: string): number => {
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null;
 };
 
 const loadState = async (): Promise<NotificationState | undefined> => {
@@ -122,11 +122,6 @@ const rateLimitMessage = (error: RequestError): string | undefined => {
 };
 
 const main = async (): Promise<void> => {
-  const token = Bun.env["GH_TOKEN"];
-  if (!token) {
-    throw new Error("GH_TOKEN is required");
-  }
-
   const force = Bun.env["usage_force"] === "true";
   const state = force ? undefined : await loadState();
   const since = state?.lastCheckedAt;
@@ -141,13 +136,12 @@ const main = async (): Promise<void> => {
 
   try {
     const octokit = new Octokit({
-      auth: token,
+      auth: Bun.env["GH_TOKEN"],
       userAgent: "github-notification-cleanup",
     });
     const notifications = await octokit.paginate(
       octokit.rest.activity.listNotificationsForAuthenticatedUser,
       {
-        all: false,
         per_page: 100,
         since,
       },
