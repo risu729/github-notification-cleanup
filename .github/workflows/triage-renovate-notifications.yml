@@ -20,8 +20,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
         run: |
-          set -euo pipefail
-
           notifications=$(
             gh api --paginate "/notifications?all=false&per_page=50" \
               --jq '.[] |
