@@ -1,24 +1,24 @@
 const apiOrigin = "https://api.github.com";
 
-interface Notification {
+type Notification = {
   id: string;
   subject: {
     type: string;
     url: string | null;
   };
-}
+};
 
-interface PullRequest {
+type PullRequest = {
   autoMergeEnabled: boolean;
   author: string;
   htmlUrl: string;
-}
+};
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
-}
+};
 
-function parseNotification(value: unknown): Notification {
+const parseNotification = (value: unknown): Notification => {
   if (!isRecord(value)) {
     throw new Error("GitHub returned an invalid notification");
   }
@@ -44,9 +44,9 @@ function parseNotification(value: unknown): Notification {
       url: subject["url"],
     },
   };
-}
+};
 
-function parsePullRequest(value: unknown): PullRequest {
+const parsePullRequest = (value: unknown): PullRequest => {
   if (!isRecord(value)) {
     throw new Error("GitHub returned an invalid pull request");
   }
@@ -69,9 +69,9 @@ function parsePullRequest(value: unknown): PullRequest {
     author: user["login"],
     htmlUrl,
   };
-}
+};
 
-function nextPage(linkHeader: string | null): string | undefined {
+const nextPage = (linkHeader: string | null): string | undefined => {
   if (linkHeader === null) {
     return undefined;
   }
@@ -84,17 +84,17 @@ function nextPage(linkHeader: string | null): string | undefined {
   }
 
   return undefined;
-}
+};
 
-function apiUrl(pathOrUrl: string): URL {
+const apiUrl = (pathOrUrl: string): URL => {
   const url = new URL(pathOrUrl, apiOrigin);
   if (url.origin !== apiOrigin) {
     throw new Error(`Refusing to send credentials to ${url.origin}`);
   }
   return url;
-}
+};
 
-async function request(pathOrUrl: string, token: string, method = "GET"): Promise<Response> {
+const request = async (pathOrUrl: string, token: string, method = "GET"): Promise<Response> => {
   const response = await fetch(apiUrl(pathOrUrl), {
     headers: {
       Accept: "application/vnd.github+json",
@@ -111,9 +111,9 @@ async function request(pathOrUrl: string, token: string, method = "GET"): Promis
   }
 
   return response;
-}
+};
 
-async function getUnreadNotifications(token: string): Promise<Notification[]> {
+const getUnreadNotifications = async (token: string): Promise<Notification[]> => {
   const notifications: Notification[] = [];
   let page: string | undefined = "/notifications?all=false&per_page=100";
 
@@ -128,17 +128,17 @@ async function getUnreadNotifications(token: string): Promise<Notification[]> {
   }
 
   return notifications;
-}
+};
 
-function validatePullRequestUrl(subjectUrl: string): string {
+const validatePullRequestUrl = (subjectUrl: string): string => {
   const url = apiUrl(subjectUrl);
   if (!/^\/repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(url.pathname)) {
     throw new Error(`Refusing unexpected pull request URL: ${url}`);
   }
   return url.href;
-}
+};
 
-async function main(): Promise<void> {
+const main = async (): Promise<void> => {
   const token = Bun.env["GH_TOKEN"];
   if (!token) {
     throw new Error("GH_TOKEN is required");
@@ -160,6 +160,6 @@ async function main(): Promise<void> {
     await request(`/notifications/threads/${notification.id}`, token, "DELETE");
     console.log(`Marked done: ${pullRequest.htmlUrl}`);
   }
-}
+};
 
 await main();
