@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: Recheck every unread pull request notification
+        description: Recheck every read and unread pull request notification
         type: boolean
 concurrency:
   group: ${{ github.workflow }}
