@@ -5,10 +5,12 @@ human attention.
 
 ## Behavior
 
-The workflow runs every 10 minutes and can also be started manually. It stores
-the last successful check time in a JSON state file and requests only
-notifications updated since then. Use the manual workflow's `force` option to
-recheck every read and unread pull request notification.
+A Cloudflare Worker runs every 10 minutes. It stores the last successful check
+time as JSON in Workers KV and requests only notifications updated since then.
+The KV checkpoint is only an optimization: a missing, stale, or malformed value
+causes the Worker to safely inspect all read and unread notifications.
+Running the Worker Deploy workflow manually with `force` queues a full check for
+the next scheduled invocation.
 
 A notification is marked done when either:
 
@@ -36,7 +38,9 @@ a notification as done does not modify its pull request.
 ## Setup
 
 Create a personal access token (classic) with the `notifications` scope and add
-it as the `RENOVATE_NOTIFICATIONS_TOKEN` Actions secret.
+it as the `RENOVATE_NOTIFICATIONS_TOKEN` Actions secret. GitHub Actions remains
+the source of truth for this credential and uploads it as the Worker's
+`GH_TOKEN` secret with every deployment.
 
 The `notifications` scope is sufficient when every referenced pull request is
 public. Inspecting private pull requests requires the classic `repo` scope,
@@ -44,6 +48,17 @@ which grants broad repository access.
 
 GitHub's notification endpoints do not support the built-in Actions
 `GITHUB_TOKEN`, fine-grained personal access tokens, or GitHub App tokens.
+
+Worker deployments also use the `CLOUDFLARE_ACCOUNT_ID` Actions variable and
+the `CLOUDFLARE_API_TOKEN` Actions secret. Restrict the Cloudflare token to the
+target account with these permissions:
+
+- `Workers Scripts: Edit`
+- `Workers KV Storage: Edit`
+
+The KV permission allows Wrangler to provision the state namespace on the first
+deployment. Subsequent deployments preserve the same automatically provisioned
+namespace.
 
 ## Development
 
@@ -53,15 +68,25 @@ Run the repository checks with:
 mise run check --lint
 ```
 
-Run notification triage locally with a suitable token:
+Create `.dev.vars` with a suitable token for local Worker development:
 
-```sh
-GH_TOKEN=... mise run triage
+```dotenv
+GH_TOKEN=...
 ```
 
-Pass `--force` to bypass the notification-state cache.
+Then start Wrangler's local scheduled-handler environment:
 
-The notification cleanup is implemented in TypeScript and runs with Bun. The
-checks use [hk](https://github.com/jdx/hk) to type-check, lint, and format the
-TypeScript and to validate the workflows, YAML, Markdown, and repository
-hygiene.
+```sh
+bun run wrangler dev --test-scheduled
+```
+
+Invoke the local scheduled handler with:
+
+```sh
+curl http://localhost:8787/cdn-cgi/handler/scheduled
+```
+
+The notification cleanup is implemented in TypeScript and runs on Cloudflare
+Workers. Tests use Cloudflare's Vitest integration. The checks use
+[hk](https://github.com/jdx/hk) to type-check, lint, and format the TypeScript
+and to validate the workflows, YAML, Markdown, and repository hygiene.

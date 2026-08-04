@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
-import { hasOnlyIgnoredActivities as classifyActivities } from "./triage";
+import { parseNotificationState } from "../src";
+import { hasOnlyIgnoredActivities as classifyActivities } from "../src/triage";
 
 const aiReviewerId = 136_622_811;
 const currentUserId = 79_110_363;
@@ -212,4 +213,19 @@ describe("AI review notification suppression", () => {
 
     expect(result).toBe(false);
   });
+});
+
+describe("notification state", () => {
+  test("parses an expandable JSON state object", () => {
+    expect(parseNotificationState({ lastCheckedAt: lastReadAt })).toEqual({
+      lastCheckedAt: lastReadAt,
+    });
+  });
+
+  test.each([null, {}, { lastCheckedAt: 1 }, { lastCheckedAt: "invalid" }])(
+    "rejects invalid state: %j",
+    (value) => {
+      expect(parseNotificationState(value)).toBeUndefined();
+    },
+  );
 });

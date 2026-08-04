@@ -1,0 +1,55 @@
+name: Worker Deploy
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/worker-deploy.yml"
+      - "bun.lock"
+      - "mise.toml"
+      - "package.json"
+      - "src/**"
+      - "tasks.toml"
+      - "wrangler.jsonc"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Recheck every read and unread pull request notification
+        type: boolean
+concurrency:
+  group: worker-production
+  cancel-in-progress: false
+permissions: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # for checkout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          version: 2026.8.0
+        env:
+          MISE_ENABLE_TOOLS: bun
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
+        run: mise run worker:deploy
+      - name: Request full notification check
+        if: ${{ inputs.force }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: mise run worker:force

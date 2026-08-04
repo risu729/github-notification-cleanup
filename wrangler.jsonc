@@ -1,0 +1,22 @@
+// ref: https://developers.cloudflare.com/workers/wrangler/configuration
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "kv_namespaces": [{ "binding": "STATE" }],
+  "main": "src/index.ts",
+  "name": "github-notification-cleanup",
+  "observability": {
+    "logs": { "enabled": true },
+    "traces": { "enabled": true },
+  },
+  "preview_urls": false,
+  "secrets": {
+    "required": ["GH_TOKEN"],
+  },
+  "triggers": {
+    "crons": ["*/10 * * * *"],
+  },
+  "upload_source_maps": true,
+  "workers_dev": false,
+}

@@ -1,15 +1,9 @@
-#!/usr/bin/env bun
-//MISE description="Triage pull request notifications."
-//MISE env={GH_TOKEN={required="Set GH_TOKEN to a classic PAT with the notifications scope"}}
-//USAGE flag "--force" env="FORCE_CHECK_ALL" help="Recheck every read and unread pull request notification"
-
-import { mkdir } from "node:fs/promises";
+// GitHub notification classification and triage logic shared by the Worker and tests.
 
 import { RequestError } from "@octokit/request-error";
 import { Octokit } from "@octokit/rest";
 
 const apiOrigin = "https://api.github.com";
-const cachePath = ".cache/notification-state.json";
 const codeRabbitBotId = 136_622_811;
 const greptileBotId = 165_735_046;
 const sourceryBotId = 58_596_630;
@@ -22,17 +16,13 @@ const ignoredReviewEvents = new Set([
 ]);
 const renovateBotId = 29_139_614;
 
-type NotificationState = {
-  lastCheckedAt: string;
-};
-
 type PullRequestCoordinates = {
   owner: string;
   pullNumber: number;
   repo: string;
 };
 
-type Summary = {
+export type Summary = {
   aiReviewMarkedDone: number;
   evaluated: number;
   markedDone: number;
@@ -51,6 +41,17 @@ type TimelineActivity = {
 };
 
 type CommitActorLoader = (sha: string) => Promise<number[] | undefined>;
+
+type TriageOptions = {
+  force?: boolean;
+  since?: string | undefined;
+  token: string;
+};
+
+export type TriageResult = {
+  startedAt: string;
+  summary: Summary;
+};
 
 const parsePullRequestUrl = (subjectUrl: string): PullRequestCoordinates => {
   const url = new URL(subjectUrl);
@@ -258,7 +259,12 @@ const hasOnlyIgnoredReviewActivity = async (
       );
     } catch (error) {
       if (error instanceof RequestError && (error.status === 404 || error.status === 422)) {
-        console.warn(`Retaining notification because commit ${sha} could not be attributed`);
+        console.warn(
+          JSON.stringify({
+            event: "commit_attribution_unavailable",
+            sha,
+          }),
+        );
         return undefined;
       }
       throw error;
@@ -266,49 +272,22 @@ const hasOnlyIgnoredReviewActivity = async (
   });
 };
 
-const loadState = async (): Promise<NotificationState | undefined> => {
-  const file = Bun.file(cachePath);
-  if (!(await file.exists())) {
-    return undefined;
-  }
-
-  let value: unknown;
-  try {
-    value = await file.json();
-  } catch {
-    console.warn("Ignoring malformed notification state JSON");
-    return undefined;
-  }
-  if (
-    !isRecord(value) ||
-    typeof value["lastCheckedAt"] !== "string" ||
-    !Number.isFinite(Date.parse(value["lastCheckedAt"]))
-  ) {
-    console.warn("Ignoring invalid notification state");
-    return undefined;
-  }
-  return { lastCheckedAt: value["lastCheckedAt"] };
-};
-
-const saveState = async (state: NotificationState): Promise<void> => {
-  await mkdir(".cache", { recursive: true });
-  await Bun.write(cachePath, `${JSON.stringify(state, undefined, 2)}\n`);
-};
-
 const printSummary = (summary: Summary, force: boolean, since: string | undefined): void => {
-  console.log("Summary:");
-  console.log(`  force recheck: ${force}`);
-  console.log(`  checked since: ${since ?? "all read and unread notifications"}`);
-  console.log(`  notifications parsed: ${summary.notifications}`);
-  console.log(`  pull request notifications: ${summary.pullRequests}`);
-  console.log(`  pull requests evaluated: ${summary.evaluated}`);
-  console.log(`  notifications marked done: ${summary.markedDone}`);
-  console.log(`    Renovate auto-merge: ${summary.renovateMarkedDone}`);
-  console.log(`    ignored AI review activity: ${summary.aiReviewMarkedDone}`);
-  console.log(`  notifications retained: ${summary.retained}`);
+  console.log(
+    JSON.stringify({
+      event: "triage_summary",
+      force,
+      since: since ?? null,
+      ...summary,
+    }),
+  );
 };
 
-const rateLimitMessage = (error: RequestError): string | undefined => {
+export const formatTriageError = (error: unknown): string => {
+  if (!(error instanceof RequestError)) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   const headers = error.response?.headers;
   const retryAfter = headers?.["retry-after"];
   const reset = headers?.["x-ratelimit-reset"];
@@ -318,7 +297,7 @@ const rateLimitMessage = (error: RequestError): string | undefined => {
     error.message.toLowerCase().includes("rate limit");
 
   if (!rateLimited) {
-    return undefined;
+    return `GitHub API request failed: ${error.status} ${error.request.method} ${error.request.url}`;
   }
   if (retryAfter !== undefined) {
     return `GitHub rate limit exceeded; retry after ${retryAfter} seconds`;
@@ -329,10 +308,12 @@ const rateLimitMessage = (error: RequestError): string | undefined => {
   return "GitHub rate limit exceeded; retry after the limit resets";
 };
 
-const main = async (): Promise<void> => {
-  const force = Bun.env["usage_force"] === "true";
-  const state = force ? undefined : await loadState();
-  const since = state?.lastCheckedAt;
+export const triageNotifications = async ({
+  force = false,
+  since,
+  token,
+}: TriageOptions): Promise<TriageResult> => {
+  const effectiveSince = force ? undefined : since;
   const startedAt = new Date().toISOString();
   const summary: Summary = {
     aiReviewMarkedDone: 0,
@@ -346,7 +327,7 @@ const main = async (): Promise<void> => {
 
   try {
     const octokit = new Octokit({
-      auth: Bun.env["GH_TOKEN"],
+      auth: token,
       userAgent: "github-notification-cleanup",
     });
     const { data: authenticatedUser } = await octokit.rest.users.getAuthenticated();
@@ -355,7 +336,7 @@ const main = async (): Promise<void> => {
       {
         all: true,
         per_page: 100,
-        since,
+        since: effectiveSince,
       },
     );
     summary.notifications = notifications.length;
@@ -400,7 +381,12 @@ const main = async (): Promise<void> => {
         currentThread.unread !== notification.unread
       ) {
         summary.retained += 1;
-        console.warn(`Retained concurrently updated notification: ${pullRequest.html_url}`);
+        console.warn(
+          JSON.stringify({
+            event: "notification_concurrently_updated",
+            pullRequestUrl: pullRequest.html_url,
+          }),
+        );
         continue;
       }
 
@@ -413,31 +399,17 @@ const main = async (): Promise<void> => {
       } else {
         summary.aiReviewMarkedDone += 1;
       }
-      console.log(`Marked done: ${pullRequest.html_url}`);
+      console.log(
+        JSON.stringify({
+          event: "notification_marked_done",
+          pullRequestUrl: pullRequest.html_url,
+          reason: isRenovateAutoMerge ? "renovate_auto_merge" : "ignored_ai_review",
+        }),
+      );
     }
-
-    await saveState({ lastCheckedAt: startedAt });
   } finally {
-    printSummary(summary, force, since);
+    printSummary(summary, force, effectiveSince);
   }
-};
 
-if (import.meta.main) {
-  try {
-    await main();
-  } catch (error) {
-    if (error instanceof RequestError) {
-      const message = rateLimitMessage(error);
-      if (message !== undefined) {
-        console.error(message);
-      } else {
-        console.error(
-          `GitHub API request failed: ${error.status} ${error.request.method} ${error.request.url}`,
-        );
-      }
-      process.exitCode = 1;
-    } else {
-      throw error;
-    }
-  }
-}
+  return { startedAt, summary };
+};
