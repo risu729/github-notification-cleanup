@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { parseNotificationState } from "../src";
+import { parseNotificationState } from "../src/state";
 import { hasOnlyIgnoredActivities as classifyActivities } from "../src/triage";
 
 const aiReviewerId = 136_622_811;
