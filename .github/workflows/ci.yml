@@ -29,6 +29,8 @@ jobs:
           version: 2026.8.0
       - name: Run check
         run: mise run check --lint
+      - name: Run tests
+        run: mise run test
   actions-timeline:
     name: Generate Actions Timeline
     needs:

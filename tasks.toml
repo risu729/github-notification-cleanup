@@ -2,7 +2,6 @@
 #:schema https://mise.jdx.dev/schema/mise-task.json
 
 [check]
-depends = ["test"]
 usage = '''
 flag "--lint" help="Run hk check instead of fix"
 '''
