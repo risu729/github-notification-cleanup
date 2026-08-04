@@ -11,3 +11,7 @@ hk \
   --all --no-progress --no-fail-fast
 """
 description = "Run hk linters and formatters."
+
+[test]
+run = "bun test"
+description = "Run unit tests."

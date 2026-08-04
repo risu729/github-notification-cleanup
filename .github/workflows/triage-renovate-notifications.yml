@@ -1,4 +1,4 @@
-name: Triage Renovate Notifications
+name: Triage Pull Request Notifications
 on:
   schedule:
     - cron: "7/10 * * * *"
@@ -16,7 +16,7 @@ defaults:
     shell: bash
 jobs:
   triage:
-    name: Mark Auto-Merge Notifications Done
+    name: Triage Notifications
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -40,7 +40,7 @@ jobs:
           path: .cache/notification-state.json
           key: renovate-notification-state-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: renovate-notification-state-${{ github.ref_name }}-
-      - name: Mark Auto-Merge Renovate Notifications Done
+      - name: Triage Pull Request Notifications
         env:
           FORCE_CHECK_ALL: ${{ inputs.force }}
           GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}

@@ -1,7 +1,7 @@
 # GitHub Notification Cleanup
 
-Keeps the GitHub notification inbox focused on Renovate pull requests that need
-manual attention.
+Keeps the GitHub notification inbox focused on pull request activity that needs
+human attention.
 
 ## Behavior
 
@@ -9,16 +9,29 @@ The workflow runs every 10 minutes and can also be started manually. It stores
 the last successful check time in a JSON state file and requests only
 notifications updated since then. Use the manual workflow's `force` option to
 recheck every read and unread pull request notification.
-For each read or unread pull request notification, it:
 
-1. fetches the referenced pull request;
-2. confirms that its author ID matches the Renovate bot;
-3. checks that GitHub auto-merge is enabled; and
-4. marks the notification as done.
+A notification is marked done when either:
+
+- its pull request was opened by Renovate and has GitHub auto-merge enabled; or
+- every attributable timeline event at or after the notification's `last_read_at`
+  timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
+  one of those events is an AI comment or review.
+
+The actor checks use immutable GitHub IDs. The current user ID is retrieved from
+the authenticated `GH_TOKEN`; the AI reviewer IDs are fixed. With no read
+timestamp, the entire timeline is checked. An unknown event, unattributable
+actor, or activity from anyone else retains the notification. The thread is
+fetched again immediately before it is marked done to reduce the chance of
+hiding a concurrent update. GitHub does not provide a conditional mark-done
+operation, so a narrow race remains between those two requests.
+
+Only comments, reviews, commits, and cross-references attributable to `risu729`
+are eligible for AI-review suppression. Other timeline activity retains the
+notification.
 
 Renovate pull requests without GitHub auto-merge, such as major updates that
-need manual review, remain untouched. Marking a notification as done does not
-modify its pull request.
+need manual review, are only suppressed by the stricter AI-review rule. Marking
+a notification as done does not modify its pull request.
 
 ## Setup
 
