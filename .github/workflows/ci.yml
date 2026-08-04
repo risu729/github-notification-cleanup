@@ -31,8 +31,11 @@ jobs:
         run: mise run check --lint
       - name: Run tests
         run: mise run test
-      - name: Build Worker
-        run: mise run worker:build
+      - name: Validate Worker deployment
+        uses: risu729/wrangler-deploy-action@a282705ddae16c69574bfe62cdda8cef47f963cb # v1.1.0
+        with:
+          mode: dry-run
+          config: wrangler.jsonc
   actions-timeline:
     name: Generate Actions Timeline
     needs:

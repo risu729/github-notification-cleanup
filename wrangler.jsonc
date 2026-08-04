@@ -2,7 +2,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "compatibility_date": "2026-08-04",
-  "compatibility_flags": ["nodejs_compat"],
   "kv_namespaces": [{ "binding": "STATE" }],
   "main": "src/index.ts",
   "name": "github-notification-cleanup",

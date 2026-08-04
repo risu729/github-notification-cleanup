@@ -19,11 +19,6 @@ env = { GH_TOKEN = "test" }
 run = "bun run vitest run"
 description = "Run unit tests."
 
-["worker:build"]
-depends = ["worker:generate-types"]
-run = "bun run wrangler deploy --dry-run"
-description = "Build and validate the Worker deployment."
-
 ["worker:deploy"]
 env = { CLOUDFLARE_ACCOUNT_ID = { required = "Set the Cloudflare account ID" }, CLOUDFLARE_API_TOKEN = { required = "Set a Cloudflare Workers API token" }, GH_TOKEN = { required = "Set a classic PAT with the notifications scope" } }
 run = '''
