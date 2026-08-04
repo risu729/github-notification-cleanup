@@ -50,7 +50,7 @@ type TimelineActivity = {
   sha: string | undefined;
 };
 
-type CommitActorLoader = (sha: string) => Promise<number[]>;
+type CommitActorLoader = (sha: string) => Promise<number[] | undefined>;
 
 const parsePullRequestUrl = (subjectUrl: string): PullRequestCoordinates => {
   const url = new URL(subjectUrl);
@@ -98,6 +98,20 @@ const getUserId = (value: unknown): number | undefined => {
   return typeof id === "number" && Number.isSafeInteger(id) ? id : undefined;
 };
 
+const getLatestTimestamp = (value: unknown, keys: string[]): string | undefined => {
+  let latest: string | undefined;
+  let latestTime = Number.NEGATIVE_INFINITY;
+  for (const key of keys) {
+    const timestamp = getString(value, key);
+    const time = timestamp === undefined ? Number.NaN : Date.parse(timestamp);
+    if (timestamp !== undefined && Number.isFinite(time) && time > latestTime) {
+      latest = timestamp;
+      latestTime = time;
+    }
+  }
+  return latest;
+};
+
 const getTimelineActivities = (event: unknown): TimelineActivity[] => {
   if (!isRecord(event)) {
     return [
@@ -131,7 +145,7 @@ const getTimelineActivities = (event: unknown): TimelineActivity[] => {
       ),
       event: eventName,
       isReviewActivity: true,
-      occurredAt: getString(comment, "created_at"),
+      occurredAt: getLatestTimestamp(comment, ["created_at", "updated_at"]),
       sha: undefined,
     }));
   }
@@ -144,20 +158,25 @@ const getTimelineActivities = (event: unknown): TimelineActivity[] => {
       event: eventName,
       isReviewActivity,
       occurredAt:
+        (eventName === "commented"
+          ? getLatestTimestamp(event, ["created_at", "updated_at"])
+          : undefined) ??
+        (eventName === "reviewed"
+          ? getLatestTimestamp(event, ["submitted_at", "updated_at"])
+          : undefined) ??
         getString(event, "created_at") ??
-        getString(event, "submitted_at") ??
         getString(event["committer"], "date"),
       sha: eventName === "committed" ? getString(event, "sha") : undefined,
     },
   ];
 };
 
-const isAfter = (value: string | undefined, boundary: string): boolean | undefined => {
+const isAtOrAfter = (value: string | undefined, boundary: string): boolean | undefined => {
   if (value === undefined) {
     return undefined;
   }
   const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp > Date.parse(boundary) : undefined;
+  return Number.isFinite(timestamp) ? timestamp >= Date.parse(boundary) : undefined;
 };
 
 export const hasOnlyIgnoredActivities = async (
@@ -171,7 +190,7 @@ export const hasOnlyIgnoredActivities = async (
   let foundIgnoredAiReview = false;
   for (const event of events) {
     for (const activity of getTimelineActivities(event)) {
-      const afterLastRead = isAfter(activity.occurredAt, activityBoundary);
+      const afterLastRead = isAtOrAfter(activity.occurredAt, activityBoundary);
       if (afterLastRead === false) {
         continue;
       }
@@ -184,10 +203,11 @@ export const hasOnlyIgnoredActivities = async (
         if (activity.sha === undefined) {
           return false;
         }
-        actorIds = await loadCommitActorIds(activity.sha);
-        if (!actorIds.includes(currentUserId)) {
+        const commitActorIds = await loadCommitActorIds(activity.sha);
+        if (commitActorIds === undefined || !commitActorIds.includes(currentUserId)) {
           return false;
         }
+        actorIds = commitActorIds;
       } else {
         const [actorId] = actorIds;
         if (
@@ -227,12 +247,22 @@ const hasOnlyIgnoredReviewActivity = async (
     repo,
   });
   return await hasOnlyIgnoredActivities(events, lastReadAt, currentUserId, async (sha) => {
-    const { data: commit } = await octokit.rest.repos.getCommit({
-      owner,
-      ref: sha,
-      repo,
-    });
-    return [commit.author?.id, commit.committer?.id].filter((id): id is number => id !== undefined);
+    try {
+      const { data: commit } = await octokit.rest.repos.getCommit({
+        owner,
+        ref: sha,
+        repo,
+      });
+      return [commit.author?.id, commit.committer?.id].filter(
+        (id): id is number => id !== undefined,
+      );
+    } catch (error) {
+      if (error instanceof RequestError && (error.status === 404 || error.status === 422)) {
+        console.warn(`Retaining notification because commit ${sha} could not be attributed`);
+        return undefined;
+      }
+      throw error;
+    }
   });
 };
 

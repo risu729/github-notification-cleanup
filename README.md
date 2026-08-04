@@ -13,7 +13,7 @@ recheck every read and unread pull request notification.
 A notification is marked done when either:
 
 - its pull request was opened by Renovate and has GitHub auto-merge enabled; or
-- every attributable timeline event after the notification's `last_read_at`
+- every attributable timeline event at or after the notification's `last_read_at`
   timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
   one of those events is an AI comment or review.
 
@@ -21,8 +21,9 @@ The actor checks use immutable GitHub IDs. The current user ID is retrieved from
 the authenticated `GH_TOKEN`; the AI reviewer IDs are fixed. With no read
 timestamp, the entire timeline is checked. An unknown event, unattributable
 actor, or activity from anyone else retains the notification. The thread is
-fetched again immediately before it is marked done so a concurrent update also
-retains it.
+fetched again immediately before it is marked done to reduce the chance of
+hiding a concurrent update. GitHub does not provide a conditional mark-done
+operation, so a narrow race remains between those two requests.
 
 Only comments, reviews, commits, and cross-references attributable to `risu729`
 are eligible for AI-review suppression. Other timeline activity retains the

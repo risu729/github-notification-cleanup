@@ -7,10 +7,11 @@ const currentUserId = 79_110_363;
 const humanId = 1;
 const lastReadAt = "2026-08-04T00:00:00Z";
 
-const comment = (actorId: number, createdAt: string): unknown => ({
+const comment = (actorId: number, createdAt: string, updatedAt = createdAt): unknown => ({
   actor: { id: actorId },
   created_at: createdAt,
   event: "commented",
+  updated_at: updatedAt,
 });
 
 const review = (actorId: number, submittedAt: string): unknown => ({
@@ -29,7 +30,7 @@ const noCommitActors = async (): Promise<number[]> => [];
 const hasOnlyIgnoredActivities = async (
   events: unknown[],
   lastReadAt: string | null,
-  loadCommitActorIds: (sha: string) => Promise<number[]>,
+  loadCommitActorIds: (sha: string) => Promise<number[] | undefined>,
 ): Promise<boolean> => {
   return await classifyActivities(events, lastReadAt, currentUserId, loadCommitActorIds);
 };
@@ -102,6 +103,29 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(false);
   });
 
+  test("retains a human comment edited after it was read", async () => {
+    const result = await hasOnlyIgnoredActivities(
+      [
+        comment(humanId, "2026-08-03T23:59:00Z", "2026-08-04T00:01:00Z"),
+        review(aiReviewerId, "2026-08-04T00:02:00Z"),
+      ],
+      lastReadAt,
+      noCommitActors,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  test("retains a human event with the same timestamp as the read boundary", async () => {
+    const result = await hasOnlyIgnoredActivities(
+      [comment(humanId, lastReadAt), review(aiReviewerId, "2026-08-04T00:01:00Z")],
+      lastReadAt,
+      noCommitActors,
+    );
+
+    expect(result).toBe(false);
+  });
+
   test("ignores human comments that were already read", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(humanId, "2026-08-03T23:59:00Z"), review(aiReviewerId, "2026-08-04T00:01:00Z")],
@@ -127,6 +151,16 @@ describe("AI review notification suppression", () => {
       [commit("2026-08-04T00:01:00Z"), review(aiReviewerId, "2026-08-04T00:02:00Z")],
       lastReadAt,
       async () => [humanId],
+    );
+
+    expect(result).toBe(false);
+  });
+
+  test("retains a commit that can no longer be fetched", async () => {
+    const result = await hasOnlyIgnoredActivities(
+      [commit("2026-08-04T00:01:00Z"), review(aiReviewerId, "2026-08-04T00:02:00Z")],
+      lastReadAt,
+      async () => undefined,
     );
 
     expect(result).toBe(false);
