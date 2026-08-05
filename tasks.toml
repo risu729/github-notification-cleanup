@@ -19,20 +19,7 @@ env = { GH_TOKEN = "test" }
 run = "bun run vitest run"
 description = "Run unit tests."
 
-["worker:deploy"]
-env = { CLOUDFLARE_ACCOUNT_ID = { required = "Set the Cloudflare account ID" }, CLOUDFLARE_API_TOKEN = { required = "Set a Cloudflare Workers API token" }, GH_TOKEN = { required = "Set a classic PAT with the notifications scope" } }
-run = '''
-printf 'GH_TOKEN=%s\n' "$GH_TOKEN" |
-  bun run wrangler deploy --secrets-file /dev/stdin
-'''
-description = "Deploy the Worker with its GitHub token."
-
 ["worker:generate-types"]
 run = "bun run wrangler types worker-configuration.d.ts"
 hide = true
 description = "Generate Cloudflare Worker runtime and binding types."
-
-["worker:force"]
-env = { CLOUDFLARE_ACCOUNT_ID = { required = "Set the Cloudflare account ID" }, CLOUDFLARE_API_TOKEN = { required = "Set a Cloudflare Workers API token" } }
-run = "bun run wrangler kv key put --binding STATE force-check-all true --remote"
-description = "Request a full notification check on the next Worker run."

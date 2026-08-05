@@ -45,12 +45,37 @@ type CommitActorLoader = (sha: string) => Promise<number[] | undefined>;
 type TriageOptions = {
   force?: boolean;
   since?: string | undefined;
+  startedAt?: string;
   token: string;
 };
 
 export type TriageResult = {
   startedAt: string;
   summary: Summary;
+};
+
+export class TriageFailure extends Error {
+  readonly originalError: unknown;
+  readonly result: TriageResult;
+
+  constructor(originalError: unknown, result: TriageResult) {
+    super("Notification triage failed");
+    this.name = "TriageFailure";
+    this.originalError = originalError;
+    this.result = result;
+  }
+}
+
+export const createEmptySummary = (): Summary => {
+  return {
+    aiReviewMarkedDone: 0,
+    evaluated: 0,
+    markedDone: 0,
+    notifications: 0,
+    pullRequests: 0,
+    renovateMarkedDone: 0,
+    retained: 0,
+  };
 };
 
 const parsePullRequestUrl = (subjectUrl: string): PullRequestCoordinates => {
@@ -284,20 +309,21 @@ const printSummary = (summary: Summary, force: boolean, since: string | undefine
 };
 
 export const formatTriageError = (error: unknown): string => {
-  if (!(error instanceof RequestError)) {
-    return error instanceof Error ? error.message : String(error);
+  const originalError = error instanceof TriageFailure ? error.originalError : error;
+  if (!(originalError instanceof RequestError)) {
+    return originalError instanceof Error ? originalError.message : String(originalError);
   }
 
-  const headers = error.response?.headers;
+  const headers = originalError.response?.headers;
   const retryAfter = headers?.["retry-after"];
   const reset = headers?.["x-ratelimit-reset"];
   const rateLimited =
-    error.status === 429 ||
+    originalError.status === 429 ||
     headers?.["x-ratelimit-remaining"] === "0" ||
-    error.message.toLowerCase().includes("rate limit");
+    originalError.message.toLowerCase().includes("rate limit");
 
   if (!rateLimited) {
-    return `GitHub API request failed: ${error.status} ${error.request.method} ${error.request.url}`;
+    return `GitHub API request failed: ${originalError.status} ${originalError.request.method} ${originalError.request.url}`;
   }
   if (retryAfter !== undefined) {
     return `GitHub rate limit exceeded; retry after ${retryAfter} seconds`;
@@ -311,19 +337,11 @@ export const formatTriageError = (error: unknown): string => {
 export const triageNotifications = async ({
   force = false,
   since,
+  startedAt = new Date().toISOString(),
   token,
 }: TriageOptions): Promise<TriageResult> => {
   const effectiveSince = force ? undefined : since;
-  const startedAt = new Date().toISOString();
-  const summary: Summary = {
-    aiReviewMarkedDone: 0,
-    evaluated: 0,
-    markedDone: 0,
-    notifications: 0,
-    pullRequests: 0,
-    renovateMarkedDone: 0,
-    retained: 0,
-  };
+  const summary = createEmptySummary();
 
   try {
     const octokit = new Octokit({
@@ -407,6 +425,8 @@ export const triageNotifications = async ({
         }),
       );
     }
+  } catch (error) {
+    throw new TriageFailure(error, { startedAt, summary });
   } finally {
     printSummary(summary, force, effectiveSince);
   }

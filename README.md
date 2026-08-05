@@ -5,12 +5,17 @@ human attention.
 
 ## Behavior
 
-A Cloudflare Worker runs every 10 minutes. It stores the last successful check
-time as JSON in Workers KV and requests only notifications updated since then.
-The KV checkpoint is only an optimization: a missing, stale, or malformed value
-causes the Worker to safely inspect all read and unread notifications.
-Running the Worker Deploy workflow manually with `force` queues a full check for
-the next scheduled invocation.
+A Cloudflare Worker runs every 10 minutes. It stores its checkpoint and an
+append-only history of successful and failed runs in Cloudflare D1. Each run
+records its timestamps, status, force flag, input checkpoint, triage summary,
+and any error. This history can support a read-only status UI later without
+depending on sampled Worker logs.
+
+The checkpoint advances only after a successful run and is only an
+optimization: a missing or invalid value causes the Worker to safely inspect
+all read and unread notifications. Running the Worker Deploy workflow manually
+with `force` queues a full check for the next scheduled invocation. The request
+remains queued if that invocation fails.
 
 A notification is marked done when either:
 
@@ -54,11 +59,11 @@ the `CLOUDFLARE_API_TOKEN` Actions secret. Restrict the Cloudflare token to the
 target account with these permissions:
 
 - `Workers Scripts: Edit`
-- `Workers KV Storage: Edit`
+- `D1: Edit`
 
-The KV permission allows Wrangler to provision the state namespace on the first
-deployment. Subsequent deployments preserve the same automatically provisioned
-namespace.
+The D1 permission allows the deployment workflow to apply versioned database
+migrations before deploying the Worker. The database binding gives the Worker
+direct access without a separate API credential or network request.
 
 ## Development
 

@@ -6,10 +6,10 @@ on:
     paths:
       - ".github/workflows/worker-deploy.yml"
       - "bun.lock"
+      - "migrations/**"
       - "mise.toml"
       - "package.json"
       - "src/**"
-      - "tasks.toml"
       - "wrangler.jsonc"
   workflow_dispatch:
     inputs:
@@ -39,17 +39,26 @@ jobs:
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           version: 2026.8.0
-        env:
-          MISE_ENABLE_TOOLS: bun
-      - name: Deploy Worker
+      - name: Install dependencies
+        run: mise deps
+      - name: Apply D1 migrations
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          GH_TOKEN: ${{ secrets.RENOVATE_NOTIFICATIONS_TOKEN }}
-        run: mise run worker:deploy
+        run: bun run wrangler d1 migrations apply github-notification-cleanup --remote
+      - name: Deploy Worker
+        uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
+        with:
+          mode: production
+          config: wrangler.jsonc
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          secrets-json: >-
+            {"GH_TOKEN":${{ toJSON(secrets.RENOVATE_NOTIFICATIONS_TOKEN) }}}
       - name: Request full notification check
         if: ${{ inputs.force }}
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: mise run worker:force
+        run: >-
+          bun run wrangler d1 execute github-notification-cleanup --remote --command "UPDATE cleanup_state SET force_check_all = 1 WHERE singleton = 1"

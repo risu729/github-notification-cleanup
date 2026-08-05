@@ -2,7 +2,14 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "compatibility_date": "2026-08-04",
-  "kv_namespaces": [{ "binding": "STATE" }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "341366b4-a5b7-4f28-9df2-fc2e8e32e4df",
+      "database_name": "github-notification-cleanup",
+      "migrations_dir": "migrations",
+    },
+  ],
   "main": "src/index.ts",
   "name": "github-notification-cleanup",
   "observability": {
