@@ -10,6 +10,7 @@ on:
       - "mise.toml"
       - "package.json"
       - "src/**"
+      - "tasks.toml"
       - "wrangler.jsonc"
   workflow_dispatch:
     inputs:
@@ -45,7 +46,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: bun run wrangler d1 migrations apply github-notification-cleanup --remote
+        run: mise run worker:migrate
       - name: Deploy Worker
         uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
         with:

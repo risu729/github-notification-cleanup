@@ -23,3 +23,8 @@ description = "Run unit tests."
 run = "bun run wrangler types worker-configuration.d.ts"
 hide = true
 description = "Generate Cloudflare Worker runtime and binding types."
+
+["worker:migrate"]
+env = { CLOUDFLARE_ACCOUNT_ID = { required = "Set the Cloudflare account ID" }, CLOUDFLARE_API_TOKEN = { required = "Set a Cloudflare Workers API token" } }
+run = "bun run wrangler d1 migrations apply github-notification-cleanup --remote"
+description = "Apply pending migrations to the production D1 database."
