@@ -74,20 +74,16 @@ jobs:
       - lint
       - test
       - worker
-    if: always()
+    if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions: {}
     steps:
-      - name: Check job results
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: jq --exit-status 'all(.[]; .result == "success")' <<< "${RESULTS}"
+      - run: exit 1
   actions-timeline:
     name: Generate Actions Timeline
     needs:
       - ci-check
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
