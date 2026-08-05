@@ -13,9 +13,9 @@ depending on sampled Worker logs.
 
 The checkpoint advances only after a successful run and is only an
 optimization: a missing or invalid value causes the Worker to safely inspect
-all read and unread notifications. Running the Worker Deploy workflow manually
-with `force` queues a full check for the next scheduled invocation. The request
-remains queued if that invocation fails.
+all read and unread notifications. The D1 state also reserves a queued
+full-check flag for a future control UI. Once requested, it remains queued if
+that invocation fails.
 
 A notification is marked done when either:
 

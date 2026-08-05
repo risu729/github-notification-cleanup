@@ -13,10 +13,6 @@ on:
       - "tasks.toml"
       - "wrangler.jsonc"
   workflow_dispatch:
-    inputs:
-      force:
-        description: Recheck every read and unread pull request notification
-        type: boolean
 concurrency:
   group: worker-production
   cancel-in-progress: false
@@ -56,10 +52,3 @@ jobs:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           secrets-json: >-
             {"GH_TOKEN":${{ toJSON(secrets.RENOVATE_NOTIFICATIONS_TOKEN) }}}
-      - name: Request full notification check
-        if: ${{ inputs.force }}
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: >-
-          bun run wrangler d1 execute github-notification-cleanup --remote --command "UPDATE cleanup_state SET force_check_all = 1 WHERE singleton = 1"
