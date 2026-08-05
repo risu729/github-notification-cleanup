@@ -74,7 +74,7 @@ jobs:
       - lint
       - test
       - worker
-    if: ${{ always() }}
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -87,7 +87,7 @@ jobs:
     name: Generate Actions Timeline
     needs:
       - ci-check
-    if: ${{ always() }}
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
