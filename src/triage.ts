@@ -43,7 +43,7 @@ type TimelineActivity = {
 type CommitActorLoader = (sha: string) => Promise<number[] | undefined>;
 
 type TriageOptions = {
-  force?: boolean;
+  fullScan?: boolean;
   since?: string | undefined;
   startedAt?: string;
   token: string;
@@ -295,10 +295,10 @@ const hasOnlyIgnoredReviewActivity = async (
   });
 };
 
-const printSummary = (summary: Summary, force: boolean, since: string | undefined): void => {
+const printSummary = (summary: Summary, fullScan: boolean, since: string | undefined): void => {
   console.log({
     event: "triage_summary",
-    force,
+    fullScan,
     since: since ?? null,
     ...summary,
   });
@@ -331,12 +331,12 @@ export const formatTriageError = (error: unknown): string => {
 };
 
 export const triageNotifications = async ({
-  force = false,
+  fullScan = false,
   since,
   startedAt = new Date().toISOString(),
   token,
 }: TriageOptions): Promise<TriageResult> => {
-  const effectiveSince = force ? undefined : since;
+  const effectiveSince = fullScan ? undefined : since;
   const summary = createEmptySummary();
 
   try {
@@ -420,7 +420,7 @@ export const triageNotifications = async ({
   } catch (error) {
     throw new TriageFailure(error, { startedAt, summary });
   } finally {
-    printSummary(summary, force, effectiveSince);
+    printSummary(summary, fullScan, effectiveSince);
   }
 
   return { startedAt, summary };

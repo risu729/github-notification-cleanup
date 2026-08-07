@@ -7,31 +7,30 @@ import {
 import { loadCleanupState, recordFailedRun, recordSuccessfulRun } from "./state";
 
 type CleanupOptions = {
-  force?: boolean;
+  fullScan?: boolean;
   scheduledAt?: string;
 };
 
 export const runNotificationCleanup = async (
   env: Env,
-  { force = false, scheduledAt }: CleanupOptions = {},
+  { fullScan = false, scheduledAt }: CleanupOptions = {},
 ): Promise<void> => {
   const startedAt = new Date().toISOString();
-  let forceRequested = force;
   let since: string | undefined;
 
   try {
     const state = await loadCleanupState(env.DB);
-    forceRequested ||= state.forceCheckAll;
-    since = forceRequested ? undefined : state.lastCheckedAt;
+    fullScan ||= state.fullScanRequested;
+    since = fullScan ? undefined : state.lastCheckedAt;
     const result = await triageNotifications({
-      force: forceRequested,
+      fullScan,
       since,
       startedAt,
       token: env.GH_TOKEN,
     });
     await recordSuccessfulRun(env.DB, {
       ...result,
-      force: forceRequested,
+      fullScan,
       scheduledAt,
       since,
     });
@@ -43,7 +42,7 @@ export const runNotificationCleanup = async (
       await recordFailedRun(env.DB, {
         ...result,
         error: message,
-        force: forceRequested,
+        fullScan,
         scheduledAt,
         since,
       });

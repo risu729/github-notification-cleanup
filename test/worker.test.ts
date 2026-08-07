@@ -6,7 +6,7 @@ import type { Summary } from "../src/triage";
 
 type CleanupRunRow = {
   error: string | null;
-  force_check_all: number;
+  full_scan: number;
   scheduled_at: string | null;
   since: string | null;
   status: "failure" | "success";
@@ -14,7 +14,7 @@ type CleanupRunRow = {
 };
 
 type CleanupStateRow = {
-  force_check_all: number;
+  full_scan_requested: number;
   last_checked_at: string | null;
 };
 
@@ -39,14 +39,14 @@ const mockGitHub = (notifications: unknown[] = []): void => {
 
 const loadState = async (): Promise<CleanupStateRow | null> => {
   return await env.DB.prepare(
-    "SELECT last_checked_at, force_check_all FROM cleanup_state WHERE singleton = 1",
+    "SELECT last_checked_at, full_scan_requested FROM cleanup_state WHERE singleton = 1",
   ).first<CleanupStateRow>();
 };
 
 const loadRuns = async (): Promise<CleanupRunRow[]> => {
   const { results } = await env.DB.prepare(
     `
-      SELECT status, force_check_all, since, scheduled_at, summary, error
+      SELECT status, full_scan, since, scheduled_at, summary, error
       FROM cleanup_runs
       ORDER BY id
     `,
@@ -54,8 +54,10 @@ const loadRuns = async (): Promise<CleanupRunRow[]> => {
   return results;
 };
 
-const requestFullCheck = async (): Promise<void> => {
-  await env.DB.prepare("UPDATE cleanup_state SET force_check_all = 1 WHERE singleton = 1").run();
+const requestFullScan = async (): Promise<void> => {
+  await env.DB.prepare(
+    "UPDATE cleanup_state SET full_scan_requested = 1 WHERE singleton = 1",
+  ).run();
 };
 
 describe("scheduled Worker state", () => {
@@ -63,7 +65,7 @@ describe("scheduled Worker state", () => {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM cleanup_runs"),
       env.DB.prepare(
-        "UPDATE cleanup_state SET last_checked_at = NULL, force_check_all = 0 WHERE singleton = 1",
+        "UPDATE cleanup_state SET last_checked_at = NULL, full_scan_requested = 0 WHERE singleton = 1",
       ),
     ]);
   });
@@ -82,7 +84,7 @@ describe("scheduled Worker state", () => {
       aiReviewMarkedDone: 0,
       evaluated: 0,
       event: "triage_summary",
-      force: false,
+      fullScan: false,
       markedDone: 0,
       notifications: 0,
       pullRequests: 0,
@@ -95,7 +97,7 @@ describe("scheduled Worker state", () => {
     const [run] = await loadRuns();
     expect(run).toMatchObject({
       error: null,
-      force_check_all: 0,
+      full_scan: 0,
       scheduled_at: "2026-08-04T00:00:00Z",
       since: null,
       status: "success",
@@ -123,7 +125,7 @@ describe("scheduled Worker state", () => {
     await expect(loadState()).resolves.toMatchObject({ last_checked_at: previousCheckpoint });
     const [run] = await loadRuns();
     expect(run).toMatchObject({
-      force_check_all: 0,
+      full_scan: 0,
       since: previousCheckpoint,
       status: "failure",
     });
@@ -166,26 +168,26 @@ describe("scheduled Worker state", () => {
     });
   });
 
-  test("retains a queued full-check request after failure", async () => {
-    await requestFullCheck();
+  test("retains a queued full-scan request after failure", async () => {
+    await requestFullScan();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(response({ message: "failure" }, 500));
 
     await expect(runNotificationCleanup(env)).rejects.toThrow();
 
-    await expect(loadState()).resolves.toMatchObject({ force_check_all: 1 });
+    await expect(loadState()).resolves.toMatchObject({ full_scan_requested: 1 });
     const [run] = await loadRuns();
-    expect(run).toMatchObject({ force_check_all: 1, since: null, status: "failure" });
+    expect(run).toMatchObject({ full_scan: 1, since: null, status: "failure" });
   });
 
-  test("consumes a queued full-check request after success", async () => {
+  test("consumes a queued full-scan request after success", async () => {
     mockGitHub();
-    await requestFullCheck();
+    await requestFullScan();
 
     await runNotificationCleanup(env);
 
-    await expect(loadState()).resolves.toMatchObject({ force_check_all: 0 });
+    await expect(loadState()).resolves.toMatchObject({ full_scan_requested: 0 });
     const [run] = await loadRuns();
-    expect(run).toMatchObject({ force_check_all: 1, since: null, status: "success" });
+    expect(run).toMatchObject({ full_scan: 1, since: null, status: "success" });
   });
 
   test("preserves earlier run history", async () => {

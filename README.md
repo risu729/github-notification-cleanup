@@ -7,7 +7,7 @@ human attention.
 
 A Cloudflare Worker runs every 10 minutes. It stores its checkpoint and an
 append-only history of successful and failed runs in Cloudflare D1. Each run
-records its timestamps, status, force flag, input checkpoint, triage summary,
+records its timestamps, status, full-scan mode, input checkpoint, triage summary,
 and any error. This history can support a read-only status UI later without
 depending on sampled Worker logs.
 

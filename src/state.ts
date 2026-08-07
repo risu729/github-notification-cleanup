@@ -1,19 +1,19 @@
 import type { TriageResult } from "./triage";
 
 export type CleanupState = {
-  forceCheckAll: boolean;
+  fullScanRequested: boolean;
   lastCheckedAt: string | undefined;
 };
 
 type CleanupStateRow = {
-  force_check_all: number;
+  full_scan_requested: number;
   last_checked_at: string | null;
 };
 
 type RunRecord = TriageResult & {
   error: string | undefined;
   finishedAt: string;
-  force: boolean;
+  fullScan: boolean;
   scheduledAt: string | undefined;
   since: string | undefined;
   status: "failure" | "success";
@@ -25,7 +25,7 @@ const insertRunStatement = `
     started_at,
     finished_at,
     status,
-    force_check_all,
+    full_scan,
     since,
     summary,
     error
@@ -40,7 +40,7 @@ const prepareRunInsert = (database: D1Database, run: RunRecord): D1PreparedState
       run.startedAt,
       run.finishedAt,
       run.status,
-      run.force ? 1 : 0,
+      run.fullScan ? 1 : 0,
       run.since ?? null,
       JSON.stringify(run.summary),
       run.error ?? null,
@@ -49,19 +49,19 @@ const prepareRunInsert = (database: D1Database, run: RunRecord): D1PreparedState
 
 export const loadCleanupState = async (database: D1Database): Promise<CleanupState> => {
   const row = await database
-    .prepare("SELECT last_checked_at, force_check_all FROM cleanup_state WHERE singleton = 1")
+    .prepare("SELECT last_checked_at, full_scan_requested FROM cleanup_state WHERE singleton = 1")
     .first<CleanupStateRow>();
   if (row === null) {
-    return { forceCheckAll: false, lastCheckedAt: undefined };
+    return { fullScanRequested: false, lastCheckedAt: undefined };
   }
 
   const lastCheckedAt = row.last_checked_at ?? undefined;
   if (lastCheckedAt !== undefined && !Number.isFinite(Date.parse(lastCheckedAt))) {
     console.warn({ event: "notification_state_invalid" });
-    return { forceCheckAll: row.force_check_all === 1, lastCheckedAt: undefined };
+    return { fullScanRequested: row.full_scan_requested === 1, lastCheckedAt: undefined };
   }
   return {
-    forceCheckAll: row.force_check_all === 1,
+    fullScanRequested: row.full_scan_requested === 1,
     lastCheckedAt,
   };
 };
@@ -81,11 +81,11 @@ export const recordSuccessfulRun = async (
     database
       .prepare(
         `
-          INSERT INTO cleanup_state (singleton, last_checked_at, force_check_all)
+          INSERT INTO cleanup_state (singleton, last_checked_at, full_scan_requested)
           VALUES (1, ?, 0)
           ON CONFLICT (singleton) DO UPDATE SET
             last_checked_at = excluded.last_checked_at,
-            force_check_all = 0
+            full_scan_requested = 0
         `,
       )
       .bind(run.startedAt),
