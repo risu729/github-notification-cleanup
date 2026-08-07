@@ -74,9 +74,22 @@ describe("scheduled Worker state", () => {
 
   test("stores a successful run and advances the checkpoint", async () => {
     mockGitHub();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     await runNotificationCleanup(env, { scheduledAt: "2026-08-04T00:00:00Z" });
 
+    expect(log).toHaveBeenCalledWith({
+      aiReviewMarkedDone: 0,
+      evaluated: 0,
+      event: "triage_summary",
+      force: false,
+      markedDone: 0,
+      notifications: 0,
+      pullRequests: 0,
+      renovateMarkedDone: 0,
+      retained: 0,
+      since: null,
+    });
     const state = await loadState();
     expect(Date.parse(state?.last_checked_at ?? "invalid")).not.toBeNaN();
     const [run] = await loadRuns();
@@ -196,11 +209,7 @@ describe("scheduled Worker state", () => {
 
     await runNotificationCleanup(env);
 
-    expect(
-      warning.mock.calls.some(([message]) =>
-        String(message).includes("notification_state_invalid"),
-      ),
-    ).toBe(true);
+    expect(warning).toHaveBeenCalledWith({ event: "notification_state_invalid" });
     const [run] = await loadRuns();
     expect(run?.since).toBeNull();
     const state = await loadState();

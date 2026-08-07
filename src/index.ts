@@ -48,12 +48,10 @@ export const runNotificationCleanup = async (
         since,
       });
     } catch (storageError) {
-      console.error(
-        JSON.stringify({
-          event: "triage_run_record_failed",
-          message: storageError instanceof Error ? storageError.message : String(storageError),
-        }),
-      );
+      console.error({
+        event: "triage_run_record_failed",
+        message: storageError instanceof Error ? storageError.message : String(storageError),
+      });
     }
     throw error;
   }
@@ -65,13 +63,11 @@ export default {
     try {
       await runNotificationCleanup(env, { scheduledAt });
     } catch (error) {
-      console.error(
-        JSON.stringify({
-          event: "triage_failed",
-          message: formatTriageError(error),
-          scheduledAt,
-        }),
-      );
+      console.error({
+        event: "triage_failed",
+        message: formatTriageError(error),
+        scheduledAt,
+      });
       throw error;
     }
   },

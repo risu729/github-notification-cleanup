@@ -57,7 +57,7 @@ export const loadCleanupState = async (database: D1Database): Promise<CleanupSta
 
   const lastCheckedAt = row.last_checked_at ?? undefined;
   if (lastCheckedAt !== undefined && !Number.isFinite(Date.parse(lastCheckedAt))) {
-    console.warn(JSON.stringify({ event: "notification_state_invalid" }));
+    console.warn({ event: "notification_state_invalid" });
     return { forceCheckAll: row.force_check_all === 1, lastCheckedAt: undefined };
   }
   return {

@@ -284,12 +284,10 @@ const hasOnlyIgnoredReviewActivity = async (
       );
     } catch (error) {
       if (error instanceof RequestError && (error.status === 404 || error.status === 422)) {
-        console.warn(
-          JSON.stringify({
-            event: "commit_attribution_unavailable",
-            sha,
-          }),
-        );
+        console.warn({
+          event: "commit_attribution_unavailable",
+          sha,
+        });
         return undefined;
       }
       throw error;
@@ -298,14 +296,12 @@ const hasOnlyIgnoredReviewActivity = async (
 };
 
 const printSummary = (summary: Summary, force: boolean, since: string | undefined): void => {
-  console.log(
-    JSON.stringify({
-      event: "triage_summary",
-      force,
-      since: since ?? null,
-      ...summary,
-    }),
-  );
+  console.log({
+    event: "triage_summary",
+    force,
+    since: since ?? null,
+    ...summary,
+  });
 };
 
 export const formatTriageError = (error: unknown): string => {
@@ -399,12 +395,10 @@ export const triageNotifications = async ({
         currentThread.unread !== notification.unread
       ) {
         summary.retained += 1;
-        console.warn(
-          JSON.stringify({
-            event: "notification_concurrently_updated",
-            pullRequestUrl: pullRequest.html_url,
-          }),
-        );
+        console.warn({
+          event: "notification_concurrently_updated",
+          pullRequestUrl: pullRequest.html_url,
+        });
         continue;
       }
 
@@ -417,13 +411,11 @@ export const triageNotifications = async ({
       } else {
         summary.aiReviewMarkedDone += 1;
       }
-      console.log(
-        JSON.stringify({
-          event: "notification_marked_done",
-          pullRequestUrl: pullRequest.html_url,
-          reason: isRenovateAutoMerge ? "renovate_auto_merge" : "ignored_ai_review",
-        }),
-      );
+      console.log({
+        event: "notification_marked_done",
+        pullRequestUrl: pullRequest.html_url,
+        reason: isRenovateAutoMerge ? "renovate_auto_merge" : "ignored_ai_review",
+      });
     }
   } catch (error) {
     throw new TriageFailure(error, { startedAt, summary });
