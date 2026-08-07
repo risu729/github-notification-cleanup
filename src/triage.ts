@@ -1,5 +1,3 @@
-// GitHub notification classification and triage logic shared by the Worker and tests.
-
 import { RequestError } from "@octokit/request-error";
 import { Octokit } from "@octokit/rest";
 

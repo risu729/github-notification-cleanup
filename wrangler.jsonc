@@ -5,7 +5,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_id": "341366b4-a5b7-4f28-9df2-fc2e8e32e4df",
+      "database_id": "0117cda7-0b65-4369-abd0-9e120fe3ba9f",
       "database_name": "github-notification-cleanup",
       "migrations_dir": "migrations",
     },
