@@ -2,6 +2,7 @@
 #:schema https://mise.jdx.dev/schema/mise-task.json
 
 [check]
+depends = ["worker:generate-types"]
 usage = '''
 flag "--lint" help="Run hk check instead of fix"
 '''
@@ -13,5 +14,18 @@ hk \
 description = "Run hk linters and formatters."
 
 [test]
-run = "bun test"
+depends = ["worker:generate-types"]
+env = { GH_TOKEN = "test" }
+run = "bun run vitest run"
 description = "Run unit tests."
+
+["worker:generate-types"]
+run = "bun run wrangler types worker-configuration.d.ts"
+hide = true
+description = "Generate Cloudflare Worker runtime and binding types."
+
+["worker:migrate"]
+env.CLOUDFLARE_ACCOUNT_ID.required = "Set the Cloudflare account ID"
+env.CLOUDFLARE_API_TOKEN.required = "Set a Cloudflare Workers API token"
+run = "bun run wrangler d1 migrations apply github-notification-cleanup --remote"
+description = "Apply pending migrations to the production D1 database."

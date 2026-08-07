@@ -3,7 +3,7 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@risu729/tsconfigs/bundler",
   "compilerOptions": {
-    "types": ["bun"]
+    "types": ["@cloudflare/vitest-pool-workers/types"]
   },
-  "include": ["tasks/**/*.ts"]
+  "include": ["src", "test", "vitest.config.ts", "worker-configuration.d.ts"]
 }

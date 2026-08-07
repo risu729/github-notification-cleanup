@@ -5,10 +5,17 @@ human attention.
 
 ## Behavior
 
-The workflow runs every 10 minutes and can also be started manually. It stores
-the last successful check time in a JSON state file and requests only
-notifications updated since then. Use the manual workflow's `force` option to
-recheck every read and unread pull request notification.
+A Cloudflare Worker runs every 10 minutes. It stores its checkpoint and an
+append-only history of successful and failed runs in Cloudflare D1. Each run
+records its timestamps, status, full-scan mode, input checkpoint, triage summary,
+and any error. This history can support a read-only status UI later without
+depending on sampled Worker logs.
+
+The checkpoint advances only after a successful run and is only an
+optimization: a missing or invalid value causes the Worker to safely inspect
+all read and unread notifications. The D1 state also reserves a queued
+full-check flag for a future control UI. Once requested, it remains queued if
+that invocation fails.
 
 A notification is marked done when either:
 
@@ -36,7 +43,9 @@ a notification as done does not modify its pull request.
 ## Setup
 
 Create a personal access token (classic) with the `notifications` scope and add
-it as the `RENOVATE_NOTIFICATIONS_TOKEN` Actions secret.
+it as the `RENOVATE_NOTIFICATIONS_TOKEN` Actions secret. GitHub Actions remains
+the source of truth for this credential and uploads it as the Worker's
+`GH_TOKEN` secret with every deployment.
 
 The `notifications` scope is sufficient when every referenced pull request is
 public. Inspecting private pull requests requires the classic `repo` scope,
@@ -44,6 +53,17 @@ which grants broad repository access.
 
 GitHub's notification endpoints do not support the built-in Actions
 `GITHUB_TOKEN`, fine-grained personal access tokens, or GitHub App tokens.
+
+Worker deployments also use the `CLOUDFLARE_ACCOUNT_ID` Actions variable and
+the `CLOUDFLARE_API_TOKEN` Actions secret. Restrict the Cloudflare token to the
+target account with these permissions:
+
+- `Workers Scripts: Edit`
+- `D1: Edit`
+
+The D1 permission allows the deployment workflow to apply versioned database
+migrations before deploying the Worker. The database binding gives the Worker
+direct access without a separate API credential or network request.
 
 ## Development
 
@@ -53,15 +73,25 @@ Run the repository checks with:
 mise run check --lint
 ```
 
-Run notification triage locally with a suitable token:
+Create `.dev.vars` with a suitable token for local Worker development:
 
-```sh
-GH_TOKEN=... mise run triage
+```dotenv
+GH_TOKEN=...
 ```
 
-Pass `--force` to bypass the notification-state cache.
+Then start Wrangler's local scheduled-handler environment:
 
-The notification cleanup is implemented in TypeScript and runs with Bun. The
-checks use [hk](https://github.com/jdx/hk) to type-check, lint, and format the
-TypeScript and to validate the workflows, YAML, Markdown, and repository
-hygiene.
+```sh
+bun run wrangler dev --test-scheduled
+```
+
+Invoke the local scheduled handler with:
+
+```sh
+curl http://localhost:8787/cdn-cgi/handler/scheduled
+```
+
+The notification cleanup is implemented in TypeScript and runs on Cloudflare
+Workers. Tests use Cloudflare's Vitest integration. The checks use
+[hk](https://github.com/jdx/hk) to type-check, lint, and format the TypeScript
+and to validate the workflows, YAML, Markdown, and repository hygiene.

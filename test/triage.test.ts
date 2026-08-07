@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
-import { hasOnlyIgnoredActivities as classifyActivities } from "./triage";
+import { hasOnlyIgnoredActivities as classifyActivities } from "../src/triage";
 
 const aiReviewerId = 136_622_811;
 const currentUserId = 79_110_363;
