@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@octokit/plugin-retry": "8.1.1",
     "@octokit/request-error": "7.1.1",
     "@octokit/rest": "22.0.1"
   },

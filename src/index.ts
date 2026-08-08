@@ -4,7 +4,7 @@ import {
   triageNotifications,
   TriageFailure,
 } from "./triage";
-import { loadCleanupState, recordFailedRun, recordSuccessfulRun } from "./state";
+import { loadCleanupState, loadPendingRetries, recordCompletedRun, recordFailedRun } from "./state";
 
 type CleanupOptions = {
   fullScan?: boolean;
@@ -16,33 +16,40 @@ export const runNotificationCleanup = async (
   { fullScan = false, scheduledAt }: CleanupOptions = {},
 ): Promise<void> => {
   const startedAt = new Date().toISOString();
+  const runKey = crypto.randomUUID();
   let since: string | undefined;
 
   try {
     const state = await loadCleanupState(env.DB);
     fullScan ||= state.fullScanRequested;
     since = fullScan ? undefined : state.lastCheckedAt;
+    const retries = await loadPendingRetries(env.DB, startedAt);
     const result = await triageNotifications({
       fullScan,
+      retries,
       since,
       startedAt,
       token: env.GH_TOKEN,
     });
-    await recordSuccessfulRun(env.DB, {
+    await recordCompletedRun(env.DB, {
       ...result,
       fullScan,
+      runKey,
       scheduledAt,
       since,
     });
   } catch (error) {
     const result =
-      error instanceof TriageFailure ? error.result : { startedAt, summary: createEmptySummary() };
+      error instanceof TriageFailure
+        ? error.result
+        : { audits: [], startedAt, summary: createEmptySummary() };
     const message = formatTriageError(error);
     try {
       await recordFailedRun(env.DB, {
         ...result,
         error: message,
         fullScan,
+        runKey,
         scheduledAt,
         since,
       });
