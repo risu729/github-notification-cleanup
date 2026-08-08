@@ -5,17 +5,29 @@ human attention.
 
 ## Behavior
 
-A Cloudflare Worker runs every 10 minutes. It stores its checkpoint and an
-append-only history of successful and failed runs in Cloudflare D1. Each run
-records its timestamps, status, full-scan mode, input checkpoint, triage summary,
-and any error. This history can support a read-only status UI later without
-depending on sampled Worker logs.
+A Cloudflare Worker runs every 10 minutes. It stores its checkpoint, an
+append-only run history, and per-pull-request outcomes in Cloudflare D1. Runs
+are recorded as successful, partial, or failed. The audit rows include the
+notification ID, repository, pull request number, decision, and GitHub error
+diagnostics when applicable. This history can support a read-only status UI
+later without depending on sampled Worker logs.
 
-The checkpoint advances only after a successful run and is only an
-optimization: a missing or invalid value causes the Worker to safely inspect
-all read and unread notifications. The D1 state also reserves a queued
-full-check flag for a future control UI. Once requested, it remains queued if
-that invocation fails.
+Transient GitHub 5xx responses are retried during the run. If one pull request
+still fails, the Worker records it in a durable retry queue, continues with the
+remaining notifications, and advances the global checkpoint after enumeration.
+Queued items use exponential backoff and are refreshed from GitHub before the
+next evaluation. A partial run therefore means the scan completed but one or
+more pull requests remain queued. Authentication and rate-limit failures remain
+systemic failures: they stop the run and leave the checkpoint unchanged. Other
+permission failures, including non-rate-limit 403 responses, stay scoped to the
+affected notification so an inaccessible repository does not block unrelated
+notifications.
+
+The checkpoint is only an optimization: a missing or invalid value causes the
+Worker to safely inspect all read and unread notifications. The D1 state also
+reserves a queued full-check flag for a future control UI. Once requested, it
+remains queued after a systemic failure and is consumed after a successful or
+partial scan.
 
 A notification is marked done when either:
 
