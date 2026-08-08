@@ -78,11 +78,13 @@ const prepareAuditInsert = (
           reason,
           error_status,
           error_message,
+          error_method,
+          error_url,
           github_request_id,
           retry_after,
           rate_limit_remaining,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
     .bind(
@@ -95,6 +97,8 @@ const prepareAuditInsert = (
       audit.reason,
       audit.error?.status ?? null,
       audit.error?.message ?? null,
+      audit.error?.method ?? null,
+      audit.error?.url ?? null,
       audit.error?.requestId ?? null,
       audit.error?.retryAfter ?? null,
       audit.error?.rateLimitRemaining ?? null,
@@ -133,12 +137,14 @@ const prepareRetryUpdate = (
           next_retry_at,
           last_error_status,
           last_error_message,
+          last_error_method,
+          last_error_url,
           github_request_id,
           retry_after,
           rate_limit_remaining,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (notification_id) DO UPDATE SET
           subject_url = excluded.subject_url,
           notification_updated_at = excluded.notification_updated_at,
@@ -148,6 +154,8 @@ const prepareRetryUpdate = (
           next_retry_at = excluded.next_retry_at,
           last_error_status = excluded.last_error_status,
           last_error_message = excluded.last_error_message,
+          last_error_method = excluded.last_error_method,
+          last_error_url = excluded.last_error_url,
           github_request_id = excluded.github_request_id,
           retry_after = excluded.retry_after,
           rate_limit_remaining = excluded.rate_limit_remaining,
@@ -164,6 +172,8 @@ const prepareRetryUpdate = (
       getNextRetryAt(attemptCount, now),
       audit.error.status ?? null,
       audit.error.message,
+      audit.error.method ?? null,
+      audit.error.url ?? null,
       audit.error.requestId ?? null,
       audit.error.retryAfter ?? null,
       audit.error.rateLimitRemaining ?? null,

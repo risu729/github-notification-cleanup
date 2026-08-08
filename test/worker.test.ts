@@ -74,6 +74,34 @@ const requestFullScan = async (): Promise<void> => {
   ).run();
 };
 
+const seedNotificationRetry = async (): Promise<void> => {
+  await env.DB.prepare(
+    `
+      INSERT INTO notification_retries (
+        notification_id,
+        subject_url,
+        notification_updated_at,
+        last_read_at,
+        unread,
+        attempt_count,
+        next_retry_at,
+        last_error_message,
+        created_at,
+        updated_at
+      ) VALUES ('1', ?, ?, ?, 0, 1, ?, 'failure', ?, ?)
+    `,
+  )
+    .bind(
+      "https://api.github.com/repos/owner/repo/pulls/1",
+      "2026-08-04T00:00:00Z",
+      "2026-08-03T00:00:00Z",
+      "2026-08-04T00:00:00Z",
+      "2026-08-04T00:00:00Z",
+      "2026-08-04T00:00:00Z",
+    )
+    .run();
+};
+
 describe("scheduled Worker state", () => {
   beforeEach(async () => {
     await env.DB.batch([
@@ -182,7 +210,9 @@ describe("scheduled Worker state", () => {
       });
     });
 
+    const startedAt = Date.now();
     await runNotificationCleanup(env);
+    const finishedAt = Date.now();
 
     const [run] = await loadRuns();
     expect(run?.status).toBe("partial");
@@ -201,12 +231,20 @@ describe("scheduled Worker state", () => {
     expect(Date.parse(state?.last_checked_at ?? "invalid")).not.toBeNaN();
     const audits = await env.DB.prepare(
       `
-        SELECT notification_id, outcome, error_status, github_request_id
+        SELECT
+          notification_id,
+          outcome,
+          error_status,
+          error_method,
+          error_url,
+          github_request_id
         FROM cleanup_run_notifications
         ORDER BY notification_id
       `,
     ).all<{
       error_status: number | null;
+      error_method: string | null;
+      error_url: string | null;
       github_request_id: string | null;
       notification_id: string;
       outcome: string;
@@ -214,12 +252,16 @@ describe("scheduled Worker state", () => {
     expect(audits.results).toEqual([
       {
         error_status: 500,
+        error_method: "GET",
+        error_url: "https://api.github.com/repos/owner/repo/pulls/1",
         github_request_id: "request-123",
         notification_id: "1",
         outcome: "retry_pending",
       },
       {
         error_status: null,
+        error_method: null,
+        error_url: null,
         github_request_id: null,
         notification_id: "2",
         outcome: "retained",
@@ -227,15 +269,26 @@ describe("scheduled Worker state", () => {
     ]);
     const retry = await env.DB.prepare(
       `
-        SELECT notification_id, attempt_count, last_error_status
+        SELECT notification_id, attempt_count, last_error_status, next_retry_at
         FROM notification_retries
       `,
-    ).first<{ attempt_count: number; last_error_status: number; notification_id: string }>();
+    ).first<{
+      attempt_count: number;
+      last_error_status: number;
+      next_retry_at: string;
+      notification_id: string;
+    }>();
     expect(retry).toMatchObject({
       attempt_count: 1,
       last_error_status: 500,
       notification_id: "1",
     });
+    expect(Date.parse(retry?.next_retry_at ?? "invalid")).toBeGreaterThanOrEqual(
+      startedAt + 10 * 60_000,
+    );
+    expect(Date.parse(retry?.next_retry_at ?? "invalid")).toBeLessThanOrEqual(
+      finishedAt + 10 * 60_000,
+    );
   });
 
   test("retries a queued notification and removes it after evaluation", async () => {
@@ -273,31 +326,7 @@ describe("scheduled Worker state", () => {
       }
       return response({ message: "unexpected test request" }, 500);
     });
-    await env.DB.prepare(
-      `
-        INSERT INTO notification_retries (
-          notification_id,
-          subject_url,
-          notification_updated_at,
-          last_read_at,
-          unread,
-          attempt_count,
-          next_retry_at,
-          last_error_message,
-          created_at,
-          updated_at
-        ) VALUES ('1', ?, ?, ?, 0, 1, ?, 'failure', ?, ?)
-      `,
-    )
-      .bind(
-        "https://api.github.com/repos/owner/repo/pulls/1",
-        "2026-08-04T00:00:00Z",
-        "2026-08-03T00:00:00Z",
-        "2026-08-04T00:00:00Z",
-        "2026-08-04T00:00:00Z",
-        "2026-08-04T00:00:00Z",
-      )
-      .run();
+    await seedNotificationRetry();
 
     await runNotificationCleanup(env);
 
@@ -310,6 +339,71 @@ describe("scheduled Worker state", () => {
       retained: 1,
       retried: 1,
       retryPending: 0,
+    });
+    const retry = await env.DB.prepare("SELECT * FROM notification_retries").first();
+    expect(retry).toBeNull();
+  });
+
+  test("marks a queued notification done when it also appears in the current feed", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      const pathname = new URL(url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications") {
+        return response([pullNotification("1", 1)]);
+      }
+      if (pathname === "/repos/owner/repo/pulls/1") {
+        return response({
+          auto_merge: {},
+          html_url: "https://github.com/owner/repo/pull/1",
+          user: { id: 29_139_614 },
+        });
+      }
+      if (pathname === "/notifications/threads/1" && method === "GET") {
+        return response({
+          id: "1",
+          last_read_at: "2026-08-03T00:00:00Z",
+          subject: {
+            type: "PullRequest",
+            url: "https://api.github.com/repos/owner/repo/pulls/1",
+          },
+          unread: false,
+          updated_at: "2026-08-04T00:00:00Z",
+        });
+      }
+      if (pathname === "/notifications/threads/1" && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    await seedNotificationRetry();
+
+    await runNotificationCleanup(env);
+
+    const [run] = await loadRuns();
+    expect(run?.status).toBe("success");
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      markedDone: 1,
+      notifications: 1,
+      renovateMarkedDone: 1,
+      retried: 1,
+      retryPending: 0,
+    });
+    const audit = await env.DB.prepare(
+      `
+        SELECT notification_id, outcome, reason
+        FROM cleanup_run_notifications
+        WHERE notification_id = '1'
+      `,
+    ).first<{ notification_id: string; outcome: string; reason: string }>();
+    expect(audit).toEqual({
+      notification_id: "1",
+      outcome: "marked_done",
+      reason: "renovate_auto_merge",
     });
     const retry = await env.DB.prepare("SELECT * FROM notification_retries").first();
     expect(retry).toBeNull();

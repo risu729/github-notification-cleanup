@@ -18,7 +18,10 @@ remaining notifications, and advances the global checkpoint after enumeration.
 Queued items use exponential backoff and are refreshed from GitHub before the
 next evaluation. A partial run therefore means the scan completed but one or
 more pull requests remain queued. Authentication and rate-limit failures remain
-systemic failures: they stop the run and leave the checkpoint unchanged.
+systemic failures: they stop the run and leave the checkpoint unchanged. Other
+permission failures, including non-rate-limit 403 responses, stay scoped to the
+affected notification so an inaccessible repository does not block unrelated
+notifications.
 
 The checkpoint is only an optimization: a missing or invalid value causes the
 Worker to safely inspect all read and unread notifications. The D1 state also

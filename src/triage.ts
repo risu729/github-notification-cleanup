@@ -45,10 +45,12 @@ export type RetryNotification = {
 
 export type GitHubErrorDetails = {
   message: string;
+  method: string | undefined;
   rateLimitRemaining: string | undefined;
   requestId: string | undefined;
   retryAfter: string | undefined;
   status: number | undefined;
+  url: string | undefined;
 };
 
 export type NotificationAudit = {
@@ -363,20 +365,24 @@ const getGitHubErrorDetails = (error: unknown): GitHubErrorDetails => {
   if (!(error instanceof RequestError)) {
     return {
       message: error instanceof Error ? error.message : String(error),
+      method: undefined,
       rateLimitRemaining: undefined,
       requestId: undefined,
       retryAfter: undefined,
       status: undefined,
+      url: undefined,
     };
   }
 
   const retryAfter = error.response?.headers["retry-after"];
   return {
     message: error.message,
+    method: error.request.method,
     rateLimitRemaining: error.response?.headers["x-ratelimit-remaining"],
     requestId: error.response?.headers["x-github-request-id"],
     retryAfter: retryAfter === undefined ? undefined : String(retryAfter),
     status: error.status,
+    url: error.request.url,
   };
 };
 
@@ -419,6 +425,7 @@ export const triageNotifications = async ({
       },
     );
     summary.notifications = notifications.length;
+    summary.retried = retries.length;
     const retryById = new Map(retries.map((notification) => [notification.id, notification]));
     const candidates = new Map<string, { notification: RetryNotification; refresh: boolean }>();
     for (const notification of retries) {
@@ -441,7 +448,6 @@ export const triageNotifications = async ({
       });
     }
 
-    summary.retried = [...candidates.values()].filter(({ refresh }) => refresh).length;
     for (const candidate of candidates.values()) {
       summary.pullRequests += 1;
       let notification = candidate.notification;
