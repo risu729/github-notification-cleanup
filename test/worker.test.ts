@@ -7,6 +7,7 @@ import type { Summary } from "../src/triage";
 type CleanupRunRow = {
   error: string | null;
   full_scan: number;
+  id: string;
   scheduled_at: string | null;
   since: string | null;
   status: "failure" | "partial" | "success";
@@ -46,9 +47,9 @@ const loadState = async (): Promise<CleanupStateRow | null> => {
 const loadRuns = async (): Promise<CleanupRunRow[]> => {
   const { results } = await env.DB.prepare(
     `
-      SELECT status, full_scan, since, scheduled_at, summary, error
+      SELECT id, status, full_scan, since, scheduled_at, summary, error
       FROM cleanup_runs
-      ORDER BY id
+      ORDER BY started_at
     `,
   ).all<CleanupRunRow>();
   return results;
@@ -119,6 +120,9 @@ describe("scheduled Worker state", () => {
       since: null,
       status: "success",
     });
+    expect(run?.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject<Summary>({
       aiReviewMarkedDone: 0,
       evaluated: 0,

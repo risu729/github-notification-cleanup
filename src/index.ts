@@ -1,3 +1,5 @@
+import { v7 as uuidv7 } from "uuid";
+
 import {
   createEmptySummary,
   formatTriageError,
@@ -16,7 +18,7 @@ export const runNotificationCleanup = async (
   { fullScan = false, scheduledAt }: CleanupOptions = {},
 ): Promise<void> => {
   const startedAt = new Date().toISOString();
-  const runKey = crypto.randomUUID();
+  const runId = uuidv7();
   let since: string | undefined;
 
   try {
@@ -34,7 +36,7 @@ export const runNotificationCleanup = async (
     await recordCompletedRun(env.DB, {
       ...result,
       fullScan,
-      runKey,
+      runId,
       scheduledAt,
       since,
     });
@@ -49,7 +51,7 @@ export const runNotificationCleanup = async (
         ...result,
         error: message,
         fullScan,
-        runKey,
+        runId,
         scheduledAt,
         since,
       });

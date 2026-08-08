@@ -7,8 +7,7 @@ CREATE TABLE cleanup_state (
 INSERT INTO cleanup_state (singleton) VALUES (1);
 
 CREATE TABLE cleanup_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_key TEXT NOT NULL UNIQUE,
+  id TEXT PRIMARY KEY,
   scheduled_at TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT NOT NULL,
@@ -23,7 +22,7 @@ CREATE INDEX cleanup_runs_started_at ON cleanup_runs (started_at DESC);
 
 CREATE TABLE cleanup_run_notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_key TEXT NOT NULL REFERENCES cleanup_runs(run_key) ON DELETE CASCADE,
+  run_id TEXT NOT NULL REFERENCES cleanup_runs(id) ON DELETE CASCADE,
   notification_id TEXT NOT NULL,
   subject_url TEXT NOT NULL,
   repository TEXT,
@@ -36,11 +35,11 @@ CREATE TABLE cleanup_run_notifications (
   retry_after TEXT,
   rate_limit_remaining TEXT,
   created_at TEXT NOT NULL,
-  UNIQUE (run_key, notification_id)
+  UNIQUE (run_id, notification_id)
 );
 
-CREATE INDEX cleanup_run_notifications_run_key
-  ON cleanup_run_notifications (run_key);
+CREATE INDEX cleanup_run_notifications_run_id
+  ON cleanup_run_notifications (run_id);
 
 CREATE TABLE notification_retries (
   notification_id TEXT PRIMARY KEY,

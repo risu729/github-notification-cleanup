@@ -23,7 +23,7 @@ type RunRecord = TriageResult & {
   error: string | undefined;
   finishedAt: string;
   fullScan: boolean;
-  runKey: string;
+  runId: string;
   scheduledAt: string | undefined;
   since: string | undefined;
   status: "failure" | "partial" | "success";
@@ -31,7 +31,7 @@ type RunRecord = TriageResult & {
 
 const insertRunStatement = `
   INSERT INTO cleanup_runs (
-    run_key,
+    id,
     scheduled_at,
     started_at,
     finished_at,
@@ -47,7 +47,7 @@ const prepareRunInsert = (database: D1Database, run: RunRecord): D1PreparedState
   return database
     .prepare(insertRunStatement)
     .bind(
-      run.runKey,
+      run.runId,
       run.scheduledAt ?? null,
       run.startedAt,
       run.finishedAt,
@@ -61,7 +61,7 @@ const prepareRunInsert = (database: D1Database, run: RunRecord): D1PreparedState
 
 const prepareAuditInsert = (
   database: D1Database,
-  runKey: string,
+  runId: string,
   createdAt: string,
   audit: NotificationAudit,
 ): D1PreparedStatement => {
@@ -69,7 +69,7 @@ const prepareAuditInsert = (
     .prepare(
       `
         INSERT INTO cleanup_run_notifications (
-          run_key,
+          run_id,
           notification_id,
           subject_url,
           repository,
@@ -86,7 +86,7 @@ const prepareAuditInsert = (
       `,
     )
     .bind(
-      runKey,
+      runId,
       audit.notification.id,
       audit.notification.subjectUrl,
       audit.repository ?? null,
@@ -239,7 +239,7 @@ export const recordCompletedRun = async (
       status,
     }),
     ...run.audits.flatMap((audit) => [
-      prepareAuditInsert(database, run.runKey, finishedAt, audit),
+      prepareAuditInsert(database, run.runId, finishedAt, audit),
       prepareRetryUpdate(database, audit, now),
     ]),
     database
@@ -269,7 +269,7 @@ export const recordFailedRun = async (
       status: "failure",
     }),
     ...run.audits.flatMap((audit) => [
-      prepareAuditInsert(database, run.runKey, finishedAt, audit),
+      prepareAuditInsert(database, run.runId, finishedAt, audit),
       prepareRetryUpdate(database, audit, now),
     ]),
   ]);
