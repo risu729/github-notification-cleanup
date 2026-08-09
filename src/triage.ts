@@ -10,12 +10,6 @@ const prCloserWarningMarker = "<!-- pr-closer-warning\n";
 const sourceryBotId = 58_596_630;
 const ignoredAiReviewerIds = new Set([codeRabbitBotId, greptileBotId, sourceryBotId]);
 const ignoredOpenPullRequestOwners = new Set(["jdx"]);
-const ignoredReviewEvents = new Set([
-  "commented",
-  "commit-commented",
-  "line-commented",
-  "reviewed",
-]);
 const maxGitHubRequestsPerNotification = 15;
 const renovateBotId = 29_139_614;
 
@@ -50,6 +44,7 @@ type SuppressionReason =
 type IgnoredActivityKind =
   | "cloudflare_deployment_comment"
   | "current_user"
+  | "ignored_ai_reference"
   | "ignored_ai_review"
   | "pr_closer_warning";
 
@@ -389,12 +384,6 @@ export const getActivitySuppressionReason = async (
         if (actorIds.length !== 1 || actorId === undefined) {
           return undefined;
         }
-        if (activity.event === "cross-referenced") {
-          if (actorId !== currentUserId) {
-            return undefined;
-          }
-          continue;
-        }
         const ignoredActivityKind = getIgnoredActivityKind(activity, actorId, currentUserId, owner);
         if (ignoredActivityKind === undefined) {
           return undefined;
@@ -430,9 +419,6 @@ const getIgnoredActivityKind = (
   currentUserId: number,
   owner: string,
 ): IgnoredActivityKind | undefined => {
-  if (!ignoredReviewEvents.has(activity.event)) {
-    return undefined;
-  }
   if (actorId === currentUserId) {
     return "current_user";
   }
@@ -441,6 +427,9 @@ const getIgnoredActivityKind = (
   }
   if (ignoredAiReviewerIds.has(actorId) && activity.isReviewActivity) {
     return "ignored_ai_review";
+  }
+  if (ignoredAiReviewerIds.has(actorId) && activity.event === "cross-referenced") {
+    return "ignored_ai_reference";
   }
   if (
     owner === "jdx" &&

@@ -173,11 +173,44 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(true);
   });
 
-  test("retains a cross-reference from an AI reviewer", async () => {
+  test("ignores a cross-reference from an AI reviewer around an AI review", async () => {
     const result = await hasOnlyIgnoredActivities(
       [
         {
           actor: { id: aiReviewerId },
+          created_at: "2026-08-04T00:01:00Z",
+          event: "cross-referenced",
+        },
+        review(aiReviewerId, "2026-08-04T00:02:00Z"),
+      ],
+      lastReadAt,
+      noCommitActors,
+    );
+
+    expect(result).toBe(true);
+  });
+
+  test("does not suppress an AI reviewer cross-reference by itself", async () => {
+    const result = await hasOnlyIgnoredActivities(
+      [
+        {
+          actor: { id: aiReviewerId },
+          created_at: "2026-08-04T00:01:00Z",
+          event: "cross-referenced",
+        },
+      ],
+      lastReadAt,
+      noCommitActors,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  test("retains a cross-reference from another actor", async () => {
+    const result = await hasOnlyIgnoredActivities(
+      [
+        {
+          actor: { id: humanId },
           created_at: "2026-08-04T00:01:00Z",
           event: "cross-referenced",
         },
@@ -263,11 +296,31 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(false);
   });
 
-  test("retains unknown activity", async () => {
+  test.each(["renamed", "labeled", "ready_for_review", "future-event"])(
+    "ignores attributable current-user %s activity around an AI review",
+    async (event) => {
+      const result = await hasOnlyIgnoredActivities(
+        [
+          {
+            actor: { id: currentUserId },
+            created_at: "2026-08-04T00:01:00Z",
+            event,
+          },
+          review(aiReviewerId, "2026-08-04T00:02:00Z"),
+        ],
+        lastReadAt,
+        noCommitActors,
+      );
+
+      expect(result).toBe(true);
+    },
+  );
+
+  test("retains unknown activity from another actor", async () => {
     const result = await hasOnlyIgnoredActivities(
       [
         {
-          actor: { id: currentUserId },
+          actor: { id: humanId },
           created_at: "2026-08-04T00:01:00Z",
           event: "future-event",
         },
