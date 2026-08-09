@@ -3,7 +3,9 @@ import { Octokit } from "@octokit/rest";
 
 const apiOrigin = "https://api.github.com";
 const codeRabbitBotId = 136_622_811;
+const githubActionsBotId = 41_898_282;
 const greptileBotId = 165_735_046;
+const prCloserWarningMarker = "<!-- pr-closer-warning\n";
 const sourceryBotId = 58_596_630;
 const ignoredAiReviewerIds = new Set([codeRabbitBotId, greptileBotId, sourceryBotId]);
 const ignoredReviewEvents = new Set([
@@ -28,7 +30,13 @@ type ReleasePullRequest = {
 
 type PullRequest = Awaited<ReturnType<Octokit["rest"]["pulls"]["get"]>>["data"];
 
-type SuppressionReason = "ignored_ai_review" | "release_pull_request" | "renovate_auto_merge";
+type SuppressionReason =
+  | "ignored_ai_review"
+  | "pr_closer_warning"
+  | "release_pull_request"
+  | "renovate_auto_merge";
+
+type IgnoredActivityKind = "current_user" | "ignored_ai_review" | "pr_closer_warning";
 
 type SuppressionRuleContext = {
   coordinates: PullRequestCoordinates;
@@ -39,8 +47,9 @@ type SuppressionRuleContext = {
 };
 
 type SuppressionRule = {
-  matches: (context: SuppressionRuleContext) => boolean | Promise<boolean>;
-  reason: SuppressionReason;
+  evaluate: (
+    context: SuppressionRuleContext,
+  ) => SuppressionReason | undefined | Promise<SuppressionReason | undefined>;
 };
 
 export type Summary = {
@@ -48,6 +57,7 @@ export type Summary = {
   evaluated: number;
   markedDone: number;
   notifications: number;
+  prCloserWarningMarkedDone: number;
   pullRequests: number;
   releaseMarkedDone: number;
   renovateMarkedDone: number;
@@ -93,6 +103,7 @@ export type NotificationAudit = {
 
 type TimelineActivity = {
   actorIds: number[];
+  body: string | undefined;
   event: string;
   isReviewActivity: boolean;
   occurredAt: string | undefined;
@@ -163,6 +174,7 @@ export const createEmptySummary = (): Summary => {
     evaluated: 0,
     markedDone: 0,
     notifications: 0,
+    prCloserWarningMarkedDone: 0,
     pullRequests: 0,
     releaseMarkedDone: 0,
     renovateMarkedDone: 0,
@@ -243,6 +255,7 @@ const getTimelineActivities = (event: unknown): TimelineActivity[] => {
     return [
       {
         actorIds: [],
+        body: undefined,
         event: "unknown",
         isReviewActivity: false,
         occurredAt: undefined,
@@ -258,6 +271,7 @@ const getTimelineActivities = (event: unknown): TimelineActivity[] => {
       return [
         {
           actorIds: [],
+          body: undefined,
           event: eventName,
           isReviewActivity: true,
           occurredAt: undefined,
@@ -269,6 +283,7 @@ const getTimelineActivities = (event: unknown): TimelineActivity[] => {
       actorIds: [getUserId(isRecord(comment) ? comment["user"] : undefined)].filter(
         (id): id is number => id !== undefined,
       ),
+      body: getString(comment, "body"),
       event: eventName,
       isReviewActivity: true,
       occurredAt: getLatestTimestamp(comment, ["created_at", "updated_at"]),
@@ -281,6 +296,7 @@ const getTimelineActivities = (event: unknown): TimelineActivity[] => {
   return [
     {
       actorIds: actorId === undefined ? [] : [actorId],
+      body: getString(event, "body"),
       event: eventName,
       isReviewActivity,
       occurredAt:
@@ -305,15 +321,16 @@ const isAtOrAfter = (value: string | undefined, boundary: string): boolean | und
   return Number.isFinite(timestamp) ? timestamp >= Date.parse(boundary) : undefined;
 };
 
-export const hasOnlyIgnoredActivities = async (
+export const getActivitySuppressionReason = async (
   events: unknown[],
   lastReadAt: string | null,
   currentUserId: number,
+  owner: string,
   loadCommitActorIds: CommitActorLoader,
-): Promise<boolean> => {
+): Promise<SuppressionReason | undefined> => {
   const activityBoundary = lastReadAt ?? "1970-01-01T00:00:00Z";
-  const ignoredActorIds = new Set([currentUserId, ...ignoredAiReviewerIds]);
   let foundIgnoredAiReview = false;
+  let foundPrCloserWarning = false;
   for (const event of events) {
     for (const activity of getTimelineActivities(event)) {
       const afterLastRead = isAtOrAfter(activity.occurredAt, activityBoundary);
@@ -321,50 +338,84 @@ export const hasOnlyIgnoredActivities = async (
         continue;
       }
       if (afterLastRead === undefined) {
-        return false;
+        return undefined;
       }
 
-      let actorIds = activity.actorIds;
       if (activity.event === "committed") {
         if (activity.sha === undefined) {
-          return false;
+          return undefined;
         }
         const commitActorIds = await loadCommitActorIds(activity.sha);
         if (commitActorIds === undefined || !commitActorIds.includes(currentUserId)) {
-          return false;
+          return undefined;
         }
-        actorIds = commitActorIds;
       } else {
+        const actorIds = activity.actorIds;
         const [actorId] = actorIds;
-        if (
-          actorIds.length !== 1 ||
-          actorId === undefined ||
-          (activity.event === "cross-referenced"
-            ? actorId !== currentUserId
-            : !ignoredReviewEvents.has(activity.event) || !ignoredActorIds.has(actorId))
-        ) {
-          return false;
+        if (actorIds.length !== 1 || actorId === undefined) {
+          return undefined;
         }
-      }
-
-      if (
-        activity.isReviewActivity &&
-        actorIds.some((actorId) => ignoredAiReviewerIds.has(actorId))
-      ) {
-        foundIgnoredAiReview = true;
+        if (activity.event === "cross-referenced") {
+          if (actorId !== currentUserId) {
+            return undefined;
+          }
+          continue;
+        }
+        const ignoredActivityKind = getIgnoredActivityKind(activity, actorId, currentUserId, owner);
+        if (ignoredActivityKind === undefined) {
+          return undefined;
+        }
+        if (ignoredActivityKind === "ignored_ai_review") {
+          foundIgnoredAiReview = true;
+        }
+        if (ignoredActivityKind === "pr_closer_warning") {
+          foundPrCloserWarning = true;
+        }
       }
     }
   }
 
-  return foundIgnoredAiReview;
+  if (foundPrCloserWarning) {
+    return "pr_closer_warning";
+  }
+  if (foundIgnoredAiReview) {
+    return "ignored_ai_review";
+  }
+  return undefined;
 };
 
-const hasOnlyIgnoredReviewActivity = async (
+const getIgnoredActivityKind = (
+  activity: TimelineActivity,
+  actorId: number,
+  currentUserId: number,
+  owner: string,
+): IgnoredActivityKind | undefined => {
+  if (!ignoredReviewEvents.has(activity.event)) {
+    return undefined;
+  }
+  if (actorId === currentUserId) {
+    return "current_user";
+  }
+  if (ignoredAiReviewerIds.has(actorId) && activity.isReviewActivity) {
+    return "ignored_ai_review";
+  }
+  if (
+    owner === "jdx" &&
+    actorId === githubActionsBotId &&
+    activity.event === "commented" &&
+    activity.body?.includes(prCloserWarningMarker) === true
+  ) {
+    return "pr_closer_warning";
+  }
+  return undefined;
+};
+
+const loadActivitySuppressionReason = async (
   octokit: Octokit,
   coordinates: PullRequestCoordinates,
   lastReadAt: string | null,
   currentUserId: number,
-): Promise<boolean> => {
+): Promise<SuppressionReason | undefined> => {
   const { owner, pullNumber, repo } = coordinates;
   const events = await octokit.paginate(octokit.rest.issues.listEventsForTimeline, {
     issue_number: pullNumber,
@@ -372,50 +423,60 @@ const hasOnlyIgnoredReviewActivity = async (
     per_page: 100,
     repo,
   });
-  return await hasOnlyIgnoredActivities(events, lastReadAt, currentUserId, async (sha) => {
-    try {
-      const { data: commit } = await octokit.rest.repos.getCommit({
-        owner,
-        ref: sha,
-        repo,
-      });
-      return [commit.author?.id, commit.committer?.id].filter(
-        (id): id is number => id !== undefined,
-      );
-    } catch (error) {
-      if (error instanceof RequestError && (error.status === 404 || error.status === 422)) {
-        console.warn({
-          event: "commit_attribution_unavailable",
-          sha,
+  return await getActivitySuppressionReason(
+    events,
+    lastReadAt,
+    currentUserId,
+    owner,
+    async (sha) => {
+      try {
+        const { data: commit } = await octokit.rest.repos.getCommit({
+          owner,
+          ref: sha,
+          repo,
         });
-        return undefined;
+        return [commit.author?.id, commit.committer?.id].filter(
+          (id): id is number => id !== undefined,
+        );
+      } catch (error) {
+        if (error instanceof RequestError && (error.status === 404 || error.status === 422)) {
+          console.warn({
+            event: "commit_attribution_unavailable",
+            sha,
+          });
+          return undefined;
+        }
+        throw error;
       }
-      throw error;
-    }
-  });
+    },
+  );
 };
 
 const suppressionRulesByPriority: SuppressionRule[] = [
   {
-    matches: ({ pullRequest }) => {
-      return pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null;
+    evaluate: ({ pullRequest }) => {
+      if (pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null) {
+        return "renovate_auto_merge";
+      }
+      return undefined;
     },
-    reason: "renovate_auto_merge",
   },
   {
-    matches: ({ coordinates, pullRequest }) => {
-      return isReleasePullRequest({
+    evaluate: ({ coordinates, pullRequest }) => {
+      const releasePullRequest = isReleasePullRequest({
         headRef: pullRequest.head.ref,
         owner: coordinates.owner,
       });
+      if (releasePullRequest) {
+        return "release_pull_request";
+      }
+      return undefined;
     },
-    reason: "release_pull_request",
   },
   {
-    matches: async ({ coordinates, currentUserId, lastReadAt, octokit }) => {
-      return await hasOnlyIgnoredReviewActivity(octokit, coordinates, lastReadAt, currentUserId);
+    evaluate: async ({ coordinates, currentUserId, lastReadAt, octokit }) => {
+      return await loadActivitySuppressionReason(octokit, coordinates, lastReadAt, currentUserId);
     },
-    reason: "ignored_ai_review",
   },
 ];
 
@@ -423,8 +484,9 @@ const getSuppressionReason = async (
   context: SuppressionRuleContext,
 ): Promise<SuppressionReason | undefined> => {
   for (const rule of suppressionRulesByPriority) {
-    if (await rule.matches(context)) {
-      return rule.reason;
+    const reason = await rule.evaluate(context);
+    if (reason !== undefined) {
+      return reason;
     }
   }
   return undefined;
@@ -700,6 +762,8 @@ export const triageNotifications = async ({
           summary.renovateMarkedDone += 1;
         } else if (audit.reason === "release_pull_request") {
           summary.releaseMarkedDone += 1;
+        } else if (audit.reason === "pr_closer_warning") {
+          summary.prCloserWarningMarkedDone += 1;
         } else {
           summary.aiReviewMarkedDone += 1;
         }
