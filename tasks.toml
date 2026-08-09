@@ -29,3 +29,15 @@ env.CLOUDFLARE_ACCOUNT_ID.required = "Set the Cloudflare account ID"
 env.CLOUDFLARE_API_TOKEN.required = "Set a Cloudflare Workers API token"
 run = "bun run wrangler d1 migrations apply github-notification-cleanup --remote"
 description = "Apply pending migrations to the production D1 database."
+
+["worker:provision"]
+env.CLOUDFLARE_ACCOUNT_ID.required = "Set the Cloudflare account ID"
+env.CLOUDFLARE_API_TOKEN.required = "Set a Cloudflare Workers API token"
+run = '''
+for queue in github-notification-cleanup-notifications github-notification-cleanup-failures; do
+  if ! bun run wrangler queues list | grep --fixed-strings --quiet "$queue"; then
+    bun run wrangler queues create "$queue"
+  fi
+done
+'''
+description = "Create the production notification queues when absent."

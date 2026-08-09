@@ -5,23 +5,29 @@ human attention.
 
 ## Behavior
 
-A Cloudflare Worker runs every 10 minutes. It stores its checkpoint, an
-append-only run history, and per-pull-request outcomes in Cloudflare D1. Runs
-are recorded as successful, partial, or failed. The audit rows include the
-notification ID, repository, pull request number, decision, and GitHub error
-diagnostics when applicable. This history can support a read-only status UI
-later without depending on sampled Worker logs.
+A Cloudflare Worker polls GitHub every 10 minutes and publishes pull request
+notifications to a Cloudflare Queue. Queue consumers evaluate at most three
+notifications per invocation with one concurrent consumer. This isolates the
+external requests for each small batch under the Workers Free plan's
+subrequest limit while allowing bursts to drain independently of the polling
+schedule.
 
-Transient GitHub 5xx responses are retried during the run. If one pull request
-still fails, the Worker records it in a durable retry queue, continues with the
-remaining notifications, and advances the global checkpoint after enumeration.
-Queued items use exponential backoff and are refreshed from GitHub before the
-next evaluation. A partial run therefore means the scan completed but one or
-more pull requests remain queued. Authentication and rate-limit failures remain
-systemic failures: they stop the run and leave the checkpoint unchanged. Other
-permission failures, including non-rate-limit 403 responses, stay scoped to the
-affected notification so an inaccessible repository does not block unrelated
-notifications.
+Each notification has a budget of 15 GitHub requests. An unusually large
+timeline that reaches the budget is retained for manual attention instead of
+risking the entire batch. Octokit does not retry inside an invocation. Transient
+GitHub failures retry the individual Queue message with exponential backoff;
+after seven retries, Cloudflare moves it to the dead-letter queue. Its consumer
+records a final `retry_exhausted` audit before acknowledging the message.
+Existing D1 retry rows are moved to the Queue as they become due after
+deployment.
+
+The Worker stores its checkpoint, append-only discovery and consumer runs, and
+per-pull-request outcomes in Cloudflare D1. Runs are recorded as successful,
+partial, or failed. Audit rows include the notification ID, repository, pull
+request number, decision, and GitHub error diagnostics when applicable. This
+history can support a read-only status UI later without depending on sampled
+Worker logs. A partial consumer run means at least one message was scheduled
+for another Queue delivery.
 
 The checkpoint is only an optimization: a missing or invalid value causes the
 Worker to safely inspect all read and unread notifications. The D1 state also
@@ -67,11 +73,13 @@ GitHub's notification endpoints do not support the built-in Actions
 `GITHUB_TOKEN`, fine-grained personal access tokens, or GitHub App tokens.
 
 Worker deployments also use the `CLOUDFLARE_ACCOUNT_ID` Actions variable and
-the `CLOUDFLARE_API_TOKEN` Actions secret. Restrict the Cloudflare token to the
-target account with these permissions:
+the `CLOUDFLARE_API_TOKEN` Actions secret. The deployment creates the primary
+and dead-letter queues when absent. Restrict the Cloudflare token to the target
+account with these permissions:
 
 - `Workers Scripts: Edit`
 - `D1: Edit`
+- `Queues: Edit`
 
 The D1 permission allows the deployment workflow to apply versioned database
 migrations before deploying the Worker. The database binding gives the Worker

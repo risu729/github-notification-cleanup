@@ -1,5 +1,4 @@
 import { RequestError } from "@octokit/request-error";
-import { retry } from "@octokit/plugin-retry";
 import { Octokit } from "@octokit/rest";
 
 const apiOrigin = "https://api.github.com";
@@ -13,8 +12,8 @@ const ignoredReviewEvents = new Set([
   "line-commented",
   "reviewed",
 ]);
+const maxGitHubRequestsPerNotification = 15;
 const renovateBotId = 29_139_614;
-const GitHub = Octokit.plugin(retry);
 
 type PullRequestCoordinates = {
   owner: string;
@@ -34,13 +33,19 @@ export type Summary = {
   retryPending: number;
 };
 
-export type RetryNotification = {
+export type Notification = {
   attemptCount: number;
   id: string;
   lastReadAt: string | null;
   subjectUrl: string;
   unread: boolean;
   updatedAt: string;
+};
+
+export type NotificationDiscovery = {
+  notifications: Notification[];
+  startedAt: string;
+  summary: Summary;
 };
 
 export type GitHubErrorDetails = {
@@ -55,7 +60,7 @@ export type GitHubErrorDetails = {
 
 export type NotificationAudit = {
   error?: GitHubErrorDetails;
-  notification: RetryNotification;
+  notification: Notification;
   outcome: "marked_done" | "retained" | "retry_pending";
   pullNumber?: number;
   reason: string;
@@ -72,11 +77,17 @@ type TimelineActivity = {
 
 type CommitActorLoader = (sha: string) => Promise<number[] | undefined>;
 
+type DiscoverOptions = {
+  fullScan: boolean;
+  retries: Notification[];
+  since: string | undefined;
+  startedAt: string;
+  token: string;
+};
+
 type TriageOptions = {
-  fullScan?: boolean;
-  retries?: RetryNotification[];
-  since?: string | undefined;
-  startedAt?: string;
+  notifications: Notification[];
+  startedAt: string;
   token: string;
 };
 
@@ -97,6 +108,30 @@ export class TriageFailure extends Error {
     this.result = result;
   }
 }
+
+class RequestBudgetExceeded extends Error {
+  constructor() {
+    super(`Notification evaluation exceeded ${maxGitHubRequestsPerNotification} GitHub requests`);
+    this.name = "RequestBudgetExceeded";
+  }
+}
+
+const createGitHub = (token: string, requestBudget?: number): Octokit => {
+  const github = new Octokit({
+    auth: token,
+    userAgent: "github-notification-cleanup",
+  });
+  if (requestBudget !== undefined) {
+    let requests = 0;
+    github.hook.before("request", () => {
+      requests += 1;
+      if (requests > requestBudget) {
+        throw new RequestBudgetExceeded();
+      }
+    });
+  }
+  return github;
+};
 
 export const createEmptySummary = (): Summary => {
   return {
@@ -329,11 +364,17 @@ const hasOnlyIgnoredReviewActivity = async (
   });
 };
 
-const printSummary = (summary: Summary, fullScan: boolean, since: string | undefined): void => {
+export const printSummary = (
+  summary: Summary,
+  source: "discovery" | "queue",
+  fullScan = false,
+  since?: string,
+): void => {
   console.log({
     event: "triage_summary",
     fullScan,
     since: since ?? null,
+    source,
     ...summary,
   });
 };
@@ -394,194 +435,223 @@ const isRateLimited = (error: RequestError): boolean => {
   );
 };
 
-const isSystemicError = (error: unknown): boolean => {
-  return error instanceof RequestError && (error.status === 401 || isRateLimited(error));
+export const getRetryDelaySeconds = (attempts: number, retryAfter?: string): number => {
+  const requestedDelay = retryAfter === undefined ? Number.NaN : Number(retryAfter);
+  if (Number.isFinite(requestedDelay) && requestedDelay >= 0) {
+    return Math.min(Math.ceil(requestedDelay), 24 * 60 * 60);
+  }
+  return Math.min(10 * 60 * 2 ** Math.max(attempts - 1, 0), 6 * 60 * 60);
+};
+
+export const discoverNotifications = async ({
+  fullScan,
+  retries,
+  since,
+  startedAt,
+  token,
+}: DiscoverOptions): Promise<NotificationDiscovery> => {
+  const effectiveSince = fullScan ? undefined : since;
+  const summary = createEmptySummary();
+  const octokit = createGitHub(token);
+  const notifications = await octokit.paginate(
+    octokit.rest.activity.listNotificationsForAuthenticatedUser,
+    {
+      all: true,
+      per_page: 100,
+      since: effectiveSince,
+    },
+  );
+  summary.notifications = notifications.length;
+  summary.retried = retries.length;
+  const retryById = new Map(retries.map((notification) => [notification.id, notification]));
+  const candidates = new Map<string, Notification>();
+  for (const notification of retries) {
+    candidates.set(notification.id, notification);
+  }
+  for (const notification of notifications) {
+    if (notification.subject.type !== "PullRequest" || notification.subject.url === null) {
+      continue;
+    }
+    candidates.set(notification.id, {
+      attemptCount: retryById.get(notification.id)?.attemptCount ?? 0,
+      id: notification.id,
+      lastReadAt: notification.last_read_at,
+      subjectUrl: notification.subject.url,
+      unread: notification.unread,
+      updatedAt: notification.updated_at,
+    });
+  }
+  summary.pullRequests = candidates.size;
+  return { notifications: [...candidates.values()], startedAt, summary };
+};
+
+const triageNotification = async (
+  notification: Notification,
+  currentUserId: number,
+  token: string,
+): Promise<NotificationAudit> => {
+  let currentNotification = notification;
+  let coordinates: PullRequestCoordinates | undefined;
+  try {
+    const octokit = createGitHub(token, maxGitHubRequestsPerNotification);
+    const threadId = parseThreadId(currentNotification.id);
+    const { data: initialThread } = await octokit.rest.activity.getThread({
+      thread_id: threadId,
+    });
+    if (initialThread.subject.type !== "PullRequest" || initialThread.subject.url === null) {
+      return {
+        notification: currentNotification,
+        outcome: "retained",
+        reason: "no_longer_pull_request",
+      };
+    }
+    currentNotification = {
+      ...currentNotification,
+      lastReadAt: initialThread.last_read_at,
+      subjectUrl: initialThread.subject.url,
+      unread: initialThread.unread,
+      updatedAt: initialThread.updated_at,
+    };
+
+    coordinates = parsePullRequestUrl(currentNotification.subjectUrl);
+    const { owner, pullNumber, repo } = coordinates;
+    const { data: pullRequest } = await octokit.rest.pulls.get({
+      owner,
+      pull_number: pullNumber,
+      repo,
+    });
+
+    const isRenovateAutoMerge =
+      pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null;
+    const isIgnoredAiReview =
+      !isRenovateAutoMerge &&
+      (await hasOnlyIgnoredReviewActivity(
+        octokit,
+        coordinates,
+        currentNotification.lastReadAt,
+        currentUserId,
+      ));
+    if (!isRenovateAutoMerge && !isIgnoredAiReview) {
+      return {
+        notification: currentNotification,
+        outcome: "retained",
+        pullNumber,
+        reason: "requires_attention",
+        repository: `${owner}/${repo}`,
+      };
+    }
+
+    const { data: currentThread } = await octokit.rest.activity.getThread({
+      thread_id: threadId,
+    });
+    if (
+      currentThread.updated_at !== currentNotification.updatedAt ||
+      currentThread.last_read_at !== currentNotification.lastReadAt ||
+      currentThread.unread !== currentNotification.unread
+    ) {
+      console.warn({
+        event: "notification_concurrently_updated",
+        pullRequestUrl: pullRequest.html_url,
+      });
+      return {
+        notification: currentNotification,
+        outcome: "retained",
+        pullNumber,
+        reason: "concurrently_updated",
+        repository: `${owner}/${repo}`,
+      };
+    }
+
+    await octokit.rest.activity.markThreadAsDone({
+      thread_id: threadId,
+    });
+    const reason = isRenovateAutoMerge ? "renovate_auto_merge" : "ignored_ai_review";
+    console.log({
+      event: "notification_marked_done",
+      pullRequestUrl: pullRequest.html_url,
+      reason,
+    });
+    return {
+      notification: currentNotification,
+      outcome: "marked_done",
+      pullNumber,
+      reason,
+      repository: `${owner}/${repo}`,
+    };
+  } catch (error) {
+    if (error instanceof RequestBudgetExceeded) {
+      return {
+        notification: currentNotification,
+        outcome: "retained",
+        reason: "evaluation_budget_exceeded",
+        ...(coordinates === undefined
+          ? {}
+          : {
+              pullNumber: coordinates.pullNumber,
+              repository: `${coordinates.owner}/${coordinates.repo}`,
+            }),
+      };
+    }
+    const details = getGitHubErrorDetails(error);
+    console.error({
+      event: "notification_evaluation_failed",
+      notificationId: currentNotification.id,
+      subjectUrl: currentNotification.subjectUrl,
+      ...details,
+    });
+    return {
+      error: details,
+      notification: currentNotification,
+      outcome: "retry_pending",
+      reason: "evaluation_failed",
+      ...(coordinates === undefined
+        ? {}
+        : {
+            pullNumber: coordinates.pullNumber,
+            repository: `${coordinates.owner}/${coordinates.repo}`,
+          }),
+    };
+  }
 };
 
 export const triageNotifications = async ({
-  fullScan = false,
-  retries = [],
-  since,
-  startedAt = new Date().toISOString(),
+  notifications,
+  startedAt,
   token,
 }: TriageOptions): Promise<TriageResult> => {
-  const effectiveSince = fullScan ? undefined : since;
   const summary = createEmptySummary();
+  summary.notifications = notifications.length;
+  summary.pullRequests = notifications.length;
+  summary.retried = notifications.filter((notification) => notification.attemptCount > 0).length;
   const audits: NotificationAudit[] = [];
 
   try {
-    const octokit = new GitHub({
-      auth: token,
-      retry: { retries: 2, retryAfterBaseValue: 100 },
-      userAgent: "github-notification-cleanup",
-    });
+    const octokit = createGitHub(token);
     const { data: authenticatedUser } = await octokit.rest.users.getAuthenticated();
-    const notifications = await octokit.paginate(
-      octokit.rest.activity.listNotificationsForAuthenticatedUser,
-      {
-        all: true,
-        per_page: 100,
-        since: effectiveSince,
-      },
-    );
-    summary.notifications = notifications.length;
-    summary.retried = retries.length;
-    const retryById = new Map(retries.map((notification) => [notification.id, notification]));
-    const candidates = new Map<string, { notification: RetryNotification; refresh: boolean }>();
-    for (const notification of retries) {
-      candidates.set(notification.id, { notification, refresh: true });
-    }
     for (const notification of notifications) {
-      if (notification.subject.type !== "PullRequest" || notification.subject.url === null) {
-        continue;
-      }
-      candidates.set(notification.id, {
-        notification: {
-          attemptCount: retryById.get(notification.id)?.attemptCount ?? 0,
-          id: notification.id,
-          lastReadAt: notification.last_read_at,
-          subjectUrl: notification.subject.url,
-          unread: notification.unread,
-          updatedAt: notification.updated_at,
-        },
-        refresh: false,
-      });
-    }
-
-    for (const candidate of candidates.values()) {
-      summary.pullRequests += 1;
-      let notification = candidate.notification;
-      let coordinates: PullRequestCoordinates | undefined;
-      try {
-        const threadId = parseThreadId(notification.id);
-        if (candidate.refresh) {
-          const { data: currentThread } = await octokit.rest.activity.getThread({
-            thread_id: threadId,
-          });
-          if (currentThread.subject.type !== "PullRequest" || currentThread.subject.url === null) {
-            audits.push({
-              notification,
-              outcome: "retained",
-              reason: "no_longer_pull_request",
-            });
-            summary.retained += 1;
-            continue;
-          }
-          notification = {
-            ...notification,
-            lastReadAt: currentThread.last_read_at,
-            subjectUrl: currentThread.subject.url,
-            unread: currentThread.unread,
-            updatedAt: currentThread.updated_at,
-          };
-        }
-
-        coordinates = parsePullRequestUrl(notification.subjectUrl);
-        const { owner, pullNumber, repo } = coordinates;
-        const { data: pullRequest } = await octokit.rest.pulls.get({
-          owner,
-          pull_number: pullNumber,
-          repo,
-        });
+      const audit = await triageNotification(notification, authenticatedUser.id, token);
+      audits.push(audit);
+      if (audit.outcome === "marked_done") {
         summary.evaluated += 1;
-
-        const isRenovateAutoMerge =
-          pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null;
-        const isIgnoredAiReview =
-          !isRenovateAutoMerge &&
-          (await hasOnlyIgnoredReviewActivity(
-            octokit,
-            coordinates,
-            notification.lastReadAt,
-            authenticatedUser.id,
-          ));
-        if (!isRenovateAutoMerge && !isIgnoredAiReview) {
-          audits.push({
-            notification,
-            outcome: "retained",
-            pullNumber,
-            reason: "requires_attention",
-            repository: `${owner}/${repo}`,
-          });
-          summary.retained += 1;
-          continue;
-        }
-
-        const { data: currentThread } = await octokit.rest.activity.getThread({
-          thread_id: threadId,
-        });
-        if (
-          currentThread.updated_at !== notification.updatedAt ||
-          currentThread.last_read_at !== notification.lastReadAt ||
-          currentThread.unread !== notification.unread
-        ) {
-          audits.push({
-            notification,
-            outcome: "retained",
-            pullNumber,
-            reason: "concurrently_updated",
-            repository: `${owner}/${repo}`,
-          });
-          summary.retained += 1;
-          console.warn({
-            event: "notification_concurrently_updated",
-            pullRequestUrl: pullRequest.html_url,
-          });
-          continue;
-        }
-
-        await octokit.rest.activity.markThreadAsDone({
-          thread_id: threadId,
-        });
-        const reason = isRenovateAutoMerge ? "renovate_auto_merge" : "ignored_ai_review";
-        audits.push({
-          notification,
-          outcome: "marked_done",
-          pullNumber,
-          reason,
-          repository: `${owner}/${repo}`,
-        });
         summary.markedDone += 1;
-        if (isRenovateAutoMerge) {
+        if (audit.reason === "renovate_auto_merge") {
           summary.renovateMarkedDone += 1;
         } else {
           summary.aiReviewMarkedDone += 1;
         }
-        console.log({
-          event: "notification_marked_done",
-          pullRequestUrl: pullRequest.html_url,
-          reason,
-        });
-      } catch (error) {
-        if (isSystemicError(error)) {
-          throw error;
+      } else if (audit.outcome === "retained") {
+        if (audit.reason !== "no_longer_pull_request") {
+          summary.evaluated += 1;
         }
-        const details = getGitHubErrorDetails(error);
-        audits.push({
-          error: details,
-          notification,
-          outcome: "retry_pending",
-          reason: "evaluation_failed",
-          ...(coordinates === undefined
-            ? {}
-            : {
-                pullNumber: coordinates.pullNumber,
-                repository: `${coordinates.owner}/${coordinates.repo}`,
-              }),
-        });
+        summary.retained += 1;
+      } else {
         summary.retryPending += 1;
-        console.error({
-          event: "notification_evaluation_failed",
-          notificationId: notification.id,
-          subjectUrl: notification.subjectUrl,
-          ...details,
-        });
       }
     }
   } catch (error) {
     throw new TriageFailure(error, { audits, startedAt, summary });
   } finally {
-    printSummary(summary, fullScan, effectiveSince);
+    printSummary(summary, "queue");
   }
 
   return { audits, startedAt, summary };
