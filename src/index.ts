@@ -151,7 +151,6 @@ const recordExhaustedBatch = async (batch: MessageBatch<Notification>, env: Env)
   summary.notifications = notifications.length;
   summary.pullRequests = notifications.length;
   summary.retained = notifications.length;
-  summary.retried = notifications.length;
   summary.retryExhausted = notifications.length;
   const audits: NotificationAudit[] = notifications.map((notification) => ({
     notification,

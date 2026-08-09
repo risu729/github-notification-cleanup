@@ -444,6 +444,9 @@ describe("notification Queue consumer", () => {
     ).first<{ outcome: string; reason: string }>();
     expect(audit).toEqual({ outcome: "retained", reason: "retry_exhausted" });
     const [run] = await loadRuns();
-    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ retryExhausted: 1 });
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      retried: 0,
+      retryExhausted: 1,
+    });
   });
 });
