@@ -13,7 +13,6 @@ const ignoredReviewEvents = new Set([
   "reviewed",
 ]);
 const maxGitHubRequestsPerNotification = 15;
-const releasePullRequestTitle = /^chore(?:\(main\))?: release(?:\s|$)/;
 const renovateBotId = 29_139_614;
 
 type PullRequestCoordinates = {
@@ -25,8 +24,6 @@ type PullRequestCoordinates = {
 type ReleasePullRequest = {
   headRef: string;
   owner: string;
-  repo: string;
-  title: string;
 };
 
 type PullRequest = Awaited<ReturnType<Octokit["rest"]["pulls"]["get"]>>["data"];
@@ -176,16 +173,9 @@ export const createEmptySummary = (): Summary => {
   };
 };
 
-export const isReleasePullRequest = ({
-  headRef,
-  owner,
-  repo,
-  title,
-}: ReleasePullRequest): boolean => {
-  const isSuppressedRepository = owner === "jdx" || (owner === "risu729" && repo === "biwa");
-  return (
-    isSuppressedRepository && releasePullRequestTitle.test(title) && headRef.startsWith("release")
-  );
+export const isReleasePullRequest = ({ headRef, owner }: ReleasePullRequest): boolean => {
+  const isSuppressedOwner = owner === "jdx" || owner === "risu729";
+  return isSuppressedOwner && headRef.startsWith("release");
 };
 
 const parsePullRequestUrl = (subjectUrl: string): PullRequestCoordinates => {
@@ -417,8 +407,6 @@ const suppressionRulesByPriority: SuppressionRule[] = [
       return isReleasePullRequest({
         headRef: pullRequest.head.ref,
         owner: coordinates.owner,
-        repo: coordinates.repo,
-        title: pullRequest.title,
       });
     },
     reason: "release_pull_request",

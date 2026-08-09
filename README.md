@@ -38,14 +38,14 @@ partial scan.
 A notification is marked done when any of these rules match:
 
 - its pull request was opened by Renovate and has GitHub auto-merge enabled; or
-- it is a release pull request from `jdx/*` or `risu729/biwa`; or
+- its head branch begins with `release` in any `jdx/*` or `risu729/*`
+  repository; or
 - every attributable timeline event at or after the notification's `last_read_at`
   timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
   one of those events is an AI comment or review.
 
-Release pull requests must have a title beginning with `chore: release` or
-`chore(main): release` and a head branch beginning with `release`. Requiring
-both markers avoids suppressing ordinary release tooling changes.
+Release pull request suppression relies only on the head branch name. Titles,
+labels, and authors vary across the supported repositories and are not checked.
 
 The actor checks use immutable GitHub IDs. The current user ID is retrieved from
 the authenticated `GH_TOKEN`; the AI reviewer IDs are fixed. With no read
