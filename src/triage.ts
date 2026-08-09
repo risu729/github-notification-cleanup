@@ -29,14 +29,14 @@ type ReleasePullRequest = {
   owner: string;
 };
 
+type PullRequest = Awaited<ReturnType<Octokit["rest"]["pulls"]["get"]>>["data"];
+
 type OpenPullRequest = {
   authorId: number | undefined;
   currentUserId: number;
   owner: string;
-  state: string;
+  state: PullRequest["state"];
 };
-
-type PullRequest = Awaited<ReturnType<Octokit["rest"]["pulls"]["get"]>>["data"];
 
 type SuppressionReason =
   | "ignored_ai_review"

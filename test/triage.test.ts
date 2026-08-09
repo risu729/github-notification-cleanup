@@ -126,7 +126,7 @@ describe("open pull request suppression by author", () => {
       owner: "jdx",
       state: "open",
     },
-  ])("retains non-match %#", (pullRequest) => {
+  ] as const)("retains non-match %#", (pullRequest) => {
     expect(isOpenPullRequestByOtherAuthor(pullRequest)).toBe(false);
   });
 });
