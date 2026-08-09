@@ -290,6 +290,15 @@ head_sha: abc123
     expect(reason).toBe("pr_closer_warning");
   });
 
+  test("prioritizes a PR closer warning over an AI review", async () => {
+    const reason = await classifyJdxActivities([
+      comment(aiReviewerId, "2026-08-04T00:01:00Z"),
+      comment(githubActionsBotId, "2026-08-04T00:02:00Z", undefined, warningBody),
+    ]);
+
+    expect(reason).toBe("pr_closer_warning");
+  });
+
   test("retains the same marked warning outside jdx", async () => {
     const reason = await classifyActivities(
       [comment(githubActionsBotId, "2026-08-04T00:01:00Z", undefined, warningBody)],
