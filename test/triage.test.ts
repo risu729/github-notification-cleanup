@@ -7,6 +7,7 @@ import {
 } from "../src/triage";
 
 const aiReviewerId = 136_622_811;
+const cloudflareWorkersAndPagesBotId = 73_139_402;
 const currentUserId = 79_110_363;
 const githubActionsBotId = 41_898_282;
 const humanId = 1;
@@ -307,6 +308,69 @@ describe("AI review notification suppression", () => {
     );
 
     expect(result).toBe(false);
+  });
+});
+
+describe("Cloudflare deployment notification suppression", () => {
+  test("suppresses a Cloudflare Workers and Pages comment", async () => {
+    const reason = await classifyActivities(
+      [comment(cloudflareWorkersAndPagesBotId, "2026-08-04T00:01:00Z")],
+      lastReadAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBe("cloudflare_deployment_comment");
+  });
+
+  test("allows current-user activity around a Cloudflare deployment comment", async () => {
+    const reason = await classifyActivities(
+      [
+        comment(currentUserId, "2026-08-04T00:01:00Z"),
+        comment(cloudflareWorkersAndPagesBotId, "2026-08-04T00:02:00Z"),
+      ],
+      lastReadAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBe("cloudflare_deployment_comment");
+  });
+
+  test("retains a later merge event", async () => {
+    const reason = await classifyActivities(
+      [
+        comment(cloudflareWorkersAndPagesBotId, "2026-08-04T00:01:00Z"),
+        {
+          actor: { id: humanId },
+          created_at: "2026-08-04T00:02:00Z",
+          event: "merged",
+        },
+      ],
+      lastReadAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
+  });
+
+  test("retains another actor's comment", async () => {
+    const reason = await classifyActivities(
+      [
+        comment(humanId, "2026-08-04T00:01:00Z"),
+        comment(cloudflareWorkersAndPagesBotId, "2026-08-04T00:02:00Z"),
+      ],
+      lastReadAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
   });
 });
 
