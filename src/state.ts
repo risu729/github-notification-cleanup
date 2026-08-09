@@ -1,4 +1,4 @@
-import type { NotificationAudit, RetryNotification, TriageResult } from "./triage";
+import type { Notification, NotificationAudit, TriageResult } from "./triage";
 
 export type CleanupState = {
   fullScanRequested: boolean;
@@ -106,82 +106,6 @@ const prepareAuditInsert = (
     );
 };
 
-const getNextRetryAt = (attemptCount: number, now: Date): string => {
-  const delayMinutes = Math.min(10 * 2 ** (attemptCount - 1), 24 * 60);
-  return new Date(now.getTime() + delayMinutes * 60_000).toISOString();
-};
-
-const prepareRetryUpdate = (
-  database: D1Database,
-  audit: NotificationAudit,
-  now: Date,
-): D1PreparedStatement => {
-  if (audit.outcome !== "retry_pending" || audit.error === undefined) {
-    return database
-      .prepare("DELETE FROM notification_retries WHERE notification_id = ?")
-      .bind(audit.notification.id);
-  }
-
-  const attemptCount = audit.notification.attemptCount + 1;
-  const timestamp = now.toISOString();
-  return database
-    .prepare(
-      `
-        INSERT INTO notification_retries (
-          notification_id,
-          subject_url,
-          notification_updated_at,
-          last_read_at,
-          unread,
-          attempt_count,
-          next_retry_at,
-          last_error_status,
-          last_error_message,
-          last_error_method,
-          last_error_url,
-          github_request_id,
-          retry_after,
-          rate_limit_remaining,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (notification_id) DO UPDATE SET
-          subject_url = excluded.subject_url,
-          notification_updated_at = excluded.notification_updated_at,
-          last_read_at = excluded.last_read_at,
-          unread = excluded.unread,
-          attempt_count = excluded.attempt_count,
-          next_retry_at = excluded.next_retry_at,
-          last_error_status = excluded.last_error_status,
-          last_error_message = excluded.last_error_message,
-          last_error_method = excluded.last_error_method,
-          last_error_url = excluded.last_error_url,
-          github_request_id = excluded.github_request_id,
-          retry_after = excluded.retry_after,
-          rate_limit_remaining = excluded.rate_limit_remaining,
-          updated_at = excluded.updated_at
-      `,
-    )
-    .bind(
-      audit.notification.id,
-      audit.notification.subjectUrl,
-      audit.notification.updatedAt,
-      audit.notification.lastReadAt,
-      audit.notification.unread ? 1 : 0,
-      attemptCount,
-      getNextRetryAt(attemptCount, now),
-      audit.error.status ?? null,
-      audit.error.message,
-      audit.error.method ?? null,
-      audit.error.url ?? null,
-      audit.error.requestId ?? null,
-      audit.error.retryAfter ?? null,
-      audit.error.rateLimitRemaining ?? null,
-      timestamp,
-      timestamp,
-    );
-};
-
 export const loadCleanupState = async (database: D1Database): Promise<CleanupState> => {
   const row = await database
     .prepare("SELECT last_checked_at, full_scan_requested FROM cleanup_state WHERE singleton = 1")
@@ -204,7 +128,7 @@ export const loadCleanupState = async (database: D1Database): Promise<CleanupSta
 export const loadPendingRetries = async (
   database: D1Database,
   now: string,
-): Promise<RetryNotification[]> => {
+): Promise<Notification[]> => {
   const { results } = await database
     .prepare(
       `
@@ -237,50 +161,59 @@ export const loadPendingRetries = async (
 export const recordCompletedRun = async (
   database: D1Database,
   run: Omit<RunRecord, "error" | "finishedAt" | "status">,
+  {
+    advanceCheckpoint = false,
+    migratedRetryIds = [],
+  }: { advanceCheckpoint?: boolean; migratedRetryIds?: string[] } = {},
 ): Promise<void> => {
-  const now = new Date();
-  const finishedAt = now.toISOString();
+  const finishedAt = new Date().toISOString();
   const status = run.summary.retryPending > 0 ? "partial" : "success";
-  await database.batch([
+  const statements = [
     prepareRunInsert(database, {
       ...run,
       error: undefined,
       finishedAt,
       status,
     }),
-    ...run.audits.flatMap((audit) => [
-      prepareAuditInsert(database, run.runId, finishedAt, audit),
-      prepareRetryUpdate(database, audit, now),
-    ]),
-    database
-      .prepare(
-        `
-          INSERT INTO cleanup_state (singleton, last_checked_at, full_scan_requested)
-          VALUES (1, ?, 0)
-          ON CONFLICT (singleton) DO UPDATE SET
-            last_checked_at = excluded.last_checked_at,
-            full_scan_requested = 0
-        `,
-      )
-      .bind(run.startedAt),
-  ]);
+    ...run.audits.map((audit) => prepareAuditInsert(database, run.runId, finishedAt, audit)),
+  ];
+  if (advanceCheckpoint) {
+    statements.push(
+      database
+        .prepare(
+          `
+            INSERT INTO cleanup_state (singleton, last_checked_at, full_scan_requested)
+            VALUES (1, ?, 0)
+            ON CONFLICT (singleton) DO UPDATE SET
+              last_checked_at = excluded.last_checked_at,
+              full_scan_requested = 0
+          `,
+        )
+        .bind(run.startedAt),
+    );
+  }
+  if (migratedRetryIds.length > 0) {
+    const placeholders = migratedRetryIds.map(() => "?").join(", ");
+    statements.push(
+      database
+        .prepare(`DELETE FROM notification_retries WHERE notification_id IN (${placeholders})`)
+        .bind(...migratedRetryIds),
+    );
+  }
+  await database.batch(statements);
 };
 
 export const recordFailedRun = async (
   database: D1Database,
   run: Omit<RunRecord, "finishedAt" | "status">,
 ): Promise<void> => {
-  const now = new Date();
-  const finishedAt = now.toISOString();
+  const finishedAt = new Date().toISOString();
   await database.batch([
     prepareRunInsert(database, {
       ...run,
       finishedAt,
       status: "failure",
     }),
-    ...run.audits.flatMap((audit) => [
-      prepareAuditInsert(database, run.runId, finishedAt, audit),
-      prepareRetryUpdate(database, audit, now),
-    ]),
+    ...run.audits.map((audit) => prepareAuditInsert(database, run.runId, finishedAt, audit)),
   ]);
 };
