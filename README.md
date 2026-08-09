@@ -79,7 +79,6 @@ account with these permissions:
 
 - `Workers Scripts: Edit`
 - `D1: Edit`
-- `Queues: Edit`
 
 The D1 permission allows the deployment workflow to apply versioned database
 migrations before deploying the Worker. The database binding gives the Worker
