@@ -40,6 +40,8 @@ A notification is marked done when any of these rules match:
 - its pull request was opened by Renovate and has GitHub auto-merge enabled; or
 - its head branch begins with `release` in any `jdx/*` or `risu729/*`
   repository; or
+- its pull request is open in `jdx/*` and was authored by someone other than
+  the authenticated user; or
 - every attributable post-read activity is otherwise ignorable and at least one
   is a `github-actions[bot]` PR auto-close warning in a `jdx/*` repository; or
 - every attributable timeline event at or after the notification's `last_read_at`
@@ -48,6 +50,11 @@ A notification is marked done when any of these rules match:
 
 Release pull request suppression relies only on the head branch name. Titles,
 labels, and authors vary across the supported repositories and are not checked.
+
+Open pull requests in `jdx/*` are suppressed regardless of whether they are
+drafts or ready for review when their known author ID differs from the
+authenticated user's ID. Closed pull requests and pull requests with an unknown
+author are retained by this rule.
 
 The actor checks use immutable GitHub IDs. The current user ID is retrieved from
 the authenticated `GH_TOKEN`; the AI reviewer IDs are fixed. With no read

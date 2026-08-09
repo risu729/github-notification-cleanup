@@ -144,6 +144,7 @@ describe("notification discovery", () => {
       evaluated: 0,
       markedDone: 0,
       notifications: 2,
+      openPullRequestMarkedDone: 0,
       prCloserWarningMarkedDone: 0,
       pullRequests: 1,
       releaseMarkedDone: 0,
@@ -466,6 +467,76 @@ describe("notification Queue consumer", () => {
     const [run] = await loadRuns();
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
       prCloserWarningMarkedDone: 0,
+    });
+  });
+
+  test("marks ready and draft jdx PRs by other authors done", async () => {
+    const notifications = [
+      {
+        ...notification("1", 1),
+        subjectUrl: "https://api.github.com/repos/jdx/mise/pulls/1",
+      },
+      {
+        ...notification("2", 2),
+        subjectUrl: "https://api.github.com/repos/jdx/mise/pulls/2",
+      },
+    ];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      const pathname = new URL(url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      const threadMatch = /^\/notifications\/threads\/(\d+)$/.exec(pathname);
+      if (threadMatch !== null && method === "GET") {
+        const id = threadMatch[1] ?? "0";
+        const pullNumber = Number(id);
+        return response({
+          ...thread(id, pullNumber),
+          subject: {
+            type: "PullRequest",
+            url: notifications[pullNumber - 1]?.subjectUrl,
+          },
+        });
+      }
+      const pullMatch = /^\/repos\/jdx\/mise\/pulls\/(\d+)$/.exec(pathname);
+      if (pullMatch !== null) {
+        const pullNumber = Number(pullMatch[1]);
+        return response(
+          pullRequest(pullNumber, {
+            draft: pullNumber === 2,
+            html_url: `https://github.com/jdx/mise/pull/${pullNumber}`,
+            state: "open",
+            user: { id: 1 },
+          }),
+        );
+      }
+      if (threadMatch !== null && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const batch = queueBatch(notifications);
+    const context = createExecutionContext();
+
+    await worker.queue(batch, env);
+
+    const queueResult = await getQueueResult(batch, context);
+    expect(queueResult.explicitAcks).toEqual(["message-0", "message-1"]);
+    expect(queueResult.retryMessages).toEqual([]);
+    const { results: audits } = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications ORDER BY notification_id",
+    ).all<{ outcome: string; reason: string }>();
+    expect(audits).toEqual([
+      { outcome: "marked_done", reason: "open_pull_request_by_other_author" },
+      { outcome: "marked_done", reason: "open_pull_request_by_other_author" },
+    ]);
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      openPullRequestMarkedDone: 2,
     });
   });
 

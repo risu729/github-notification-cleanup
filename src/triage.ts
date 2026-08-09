@@ -8,6 +8,7 @@ const greptileBotId = 165_735_046;
 const prCloserWarningMarker = "<!-- pr-closer-warning\n";
 const sourceryBotId = 58_596_630;
 const ignoredAiReviewerIds = new Set([codeRabbitBotId, greptileBotId, sourceryBotId]);
+const ignoredOpenPullRequestOwners = new Set(["jdx"]);
 const ignoredReviewEvents = new Set([
   "commented",
   "commit-commented",
@@ -28,10 +29,18 @@ type ReleasePullRequest = {
   owner: string;
 };
 
+type OpenPullRequest = {
+  authorId: number | undefined;
+  currentUserId: number;
+  owner: string;
+  state: string;
+};
+
 type PullRequest = Awaited<ReturnType<Octokit["rest"]["pulls"]["get"]>>["data"];
 
 type SuppressionReason =
   | "ignored_ai_review"
+  | "open_pull_request_by_other_author"
   | "pr_closer_warning"
   | "release_pull_request"
   | "renovate_auto_merge";
@@ -57,6 +66,7 @@ export type Summary = {
   evaluated: number;
   markedDone: number;
   notifications: number;
+  openPullRequestMarkedDone: number;
   prCloserWarningMarkedDone: number;
   pullRequests: number;
   releaseMarkedDone: number;
@@ -174,6 +184,7 @@ export const createEmptySummary = (): Summary => {
     evaluated: 0,
     markedDone: 0,
     notifications: 0,
+    openPullRequestMarkedDone: 0,
     prCloserWarningMarkedDone: 0,
     pullRequests: 0,
     releaseMarkedDone: 0,
@@ -188,6 +199,20 @@ export const createEmptySummary = (): Summary => {
 export const isReleasePullRequest = ({ headRef, owner }: ReleasePullRequest): boolean => {
   const isSuppressedOwner = owner === "jdx" || owner === "risu729";
   return isSuppressedOwner && headRef.startsWith("release");
+};
+
+export const isOpenPullRequestByOtherAuthor = ({
+  authorId,
+  currentUserId,
+  owner,
+  state,
+}: OpenPullRequest): boolean => {
+  return (
+    ignoredOpenPullRequestOwners.has(owner) &&
+    state === "open" &&
+    authorId !== undefined &&
+    authorId !== currentUserId
+  );
 };
 
 const parsePullRequestUrl = (subjectUrl: string): PullRequestCoordinates => {
@@ -469,6 +494,20 @@ const suppressionRulesByPriority: SuppressionRule[] = [
       });
       if (releasePullRequest) {
         return "release_pull_request";
+      }
+      return undefined;
+    },
+  },
+  {
+    evaluate: ({ coordinates, currentUserId, pullRequest }) => {
+      const openPullRequestByOtherAuthor = isOpenPullRequestByOtherAuthor({
+        authorId: pullRequest.user?.id,
+        currentUserId,
+        owner: coordinates.owner,
+        state: pullRequest.state,
+      });
+      if (openPullRequestByOtherAuthor) {
+        return "open_pull_request_by_other_author";
       }
       return undefined;
     },
@@ -762,6 +801,8 @@ export const triageNotifications = async ({
           summary.renovateMarkedDone += 1;
         } else if (audit.reason === "release_pull_request") {
           summary.releaseMarkedDone += 1;
+        } else if (audit.reason === "open_pull_request_by_other_author") {
+          summary.openPullRequestMarkedDone += 1;
         } else if (audit.reason === "pr_closer_warning") {
           summary.prCloserWarningMarkedDone += 1;
         } else {
