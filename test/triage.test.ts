@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { hasOnlyIgnoredActivities as classifyActivities } from "../src/triage";
+import {
+  hasOnlyIgnoredActivities as classifyActivities,
+  isReleasePullRequest,
+} from "../src/triage";
 
 const aiReviewerId = 136_622_811;
 const currentUserId = 79_110_363;
@@ -34,6 +37,60 @@ const hasOnlyIgnoredActivities = async (
 ): Promise<boolean> => {
   return await classifyActivities(events, lastReadAt, currentUserId, loadCommitActorIds);
 };
+
+describe("release pull request suppression", () => {
+  test.each([
+    {
+      headRef: "release",
+      owner: "jdx",
+      repo: "usage",
+      title: "chore: release v5.1.0",
+    },
+    {
+      headRef: "release-please--branches--main--components--mise",
+      owner: "jdx",
+      repo: "mise",
+      title: "chore(main): release 2026.8.4",
+    },
+    {
+      headRef: "release-plz-2026-08-03T19-44-40Z",
+      owner: "risu729",
+      repo: "biwa",
+      title: "chore: release v1.1.0",
+    },
+  ])("suppresses $owner/$repo release PRs", (pullRequest) => {
+    expect(isReleasePullRequest(pullRequest)).toBe(true);
+  });
+
+  test.each([
+    {
+      headRef: "release",
+      owner: "someone-else",
+      repo: "usage",
+      title: "chore: release v5.1.0",
+    },
+    {
+      headRef: "release",
+      owner: "risu729",
+      repo: "dotfiles",
+      title: "chore: release v1.0.0",
+    },
+    {
+      headRef: "feature/automate-release",
+      owner: "jdx",
+      repo: "usage",
+      title: "chore: release v5.1.0",
+    },
+    {
+      headRef: "release",
+      owner: "jdx",
+      repo: "usage",
+      title: "chore(release): automate publishing",
+    },
+  ])("retains non-release match %#", (pullRequest) => {
+    expect(isReleasePullRequest(pullRequest)).toBe(false);
+  });
+});
 
 describe("AI review notification suppression", () => {
   test("suppresses an AI-only comment after the thread was read", async () => {

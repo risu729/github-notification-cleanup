@@ -13,6 +13,7 @@ const ignoredReviewEvents = new Set([
   "reviewed",
 ]);
 const maxGitHubRequestsPerNotification = 15;
+const releasePullRequestTitle = /^chore(?:\(main\))?: release(?:\s|$)/;
 const renovateBotId = 29_139_614;
 
 type PullRequestCoordinates = {
@@ -21,12 +22,36 @@ type PullRequestCoordinates = {
   repo: string;
 };
 
+type ReleasePullRequest = {
+  headRef: string;
+  owner: string;
+  repo: string;
+  title: string;
+};
+
+type PullRequest = Awaited<ReturnType<Octokit["rest"]["pulls"]["get"]>>["data"];
+
+type SuppressionReason = "ignored_ai_review" | "release_pull_request" | "renovate_auto_merge";
+
+type SuppressionRuleContext = {
+  coordinates: PullRequestCoordinates;
+  currentUserId: number;
+  lastReadAt: string | null;
+  octokit: Octokit;
+  pullRequest: PullRequest;
+};
+
+type SuppressionRule = (
+  context: SuppressionRuleContext,
+) => Promise<SuppressionReason | undefined> | SuppressionReason | undefined;
+
 export type Summary = {
   aiReviewMarkedDone: number;
   evaluated: number;
   markedDone: number;
   notifications: number;
   pullRequests: number;
+  releaseMarkedDone: number;
   renovateMarkedDone: number;
   retained: number;
   retried: number;
@@ -141,12 +166,25 @@ export const createEmptySummary = (): Summary => {
     markedDone: 0,
     notifications: 0,
     pullRequests: 0,
+    releaseMarkedDone: 0,
     renovateMarkedDone: 0,
     retained: 0,
     retried: 0,
     retryExhausted: 0,
     retryPending: 0,
   };
+};
+
+export const isReleasePullRequest = ({
+  headRef,
+  owner,
+  repo,
+  title,
+}: ReleasePullRequest): boolean => {
+  const isSuppressedRepository = owner === "jdx" || (owner === "risu729" && repo === "biwa");
+  return (
+    isSuppressedRepository && releasePullRequestTitle.test(title) && headRef.startsWith("release")
+  );
 };
 
 const parsePullRequestUrl = (subjectUrl: string): PullRequestCoordinates => {
@@ -366,6 +404,46 @@ const hasOnlyIgnoredReviewActivity = async (
   });
 };
 
+const suppressionRules: SuppressionRule[] = [
+  ({ pullRequest }) => {
+    if (pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null) {
+      return "renovate_auto_merge";
+    }
+    return undefined;
+  },
+  ({ coordinates, pullRequest }) => {
+    if (
+      isReleasePullRequest({
+        headRef: pullRequest.head.ref,
+        owner: coordinates.owner,
+        repo: coordinates.repo,
+        title: pullRequest.title,
+      })
+    ) {
+      return "release_pull_request";
+    }
+    return undefined;
+  },
+  async ({ coordinates, currentUserId, lastReadAt, octokit }) => {
+    if (await hasOnlyIgnoredReviewActivity(octokit, coordinates, lastReadAt, currentUserId)) {
+      return "ignored_ai_review";
+    }
+    return undefined;
+  },
+];
+
+const getSuppressionReason = async (
+  context: SuppressionRuleContext,
+): Promise<SuppressionReason | undefined> => {
+  for (const rule of suppressionRules) {
+    const reason = await rule(context);
+    if (reason !== undefined) {
+      return reason;
+    }
+  }
+  return undefined;
+};
+
 export const printSummary = (
   summary: Summary,
   source: "discovery" | "queue",
@@ -523,17 +601,14 @@ const triageNotification = async (
       repo,
     });
 
-    const isRenovateAutoMerge =
-      pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null;
-    const isIgnoredAiReview =
-      !isRenovateAutoMerge &&
-      (await hasOnlyIgnoredReviewActivity(
-        octokit,
-        coordinates,
-        currentNotification.lastReadAt,
-        currentUserId,
-      ));
-    if (!isRenovateAutoMerge && !isIgnoredAiReview) {
+    const suppressionReason = await getSuppressionReason({
+      coordinates,
+      currentUserId,
+      lastReadAt: currentNotification.lastReadAt,
+      octokit,
+      pullRequest,
+    });
+    if (suppressionReason === undefined) {
       return {
         notification: currentNotification,
         outcome: "retained",
@@ -567,17 +642,16 @@ const triageNotification = async (
     await octokit.rest.activity.markThreadAsDone({
       thread_id: threadId,
     });
-    const reason = isRenovateAutoMerge ? "renovate_auto_merge" : "ignored_ai_review";
     console.log({
       event: "notification_marked_done",
       pullRequestUrl: pullRequest.html_url,
-      reason,
+      reason: suppressionReason,
     });
     return {
       notification: currentNotification,
       outcome: "marked_done",
       pullNumber,
-      reason,
+      reason: suppressionReason,
       repository: `${owner}/${repo}`,
     };
   } catch (error) {
@@ -638,6 +712,8 @@ export const triageNotifications = async ({
         summary.markedDone += 1;
         if (audit.reason === "renovate_auto_merge") {
           summary.renovateMarkedDone += 1;
+        } else if (audit.reason === "release_pull_request") {
+          summary.releaseMarkedDone += 1;
         } else {
           summary.aiReviewMarkedDone += 1;
         }
