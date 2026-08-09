@@ -2,6 +2,7 @@ import { RequestError } from "@octokit/request-error";
 import { Octokit } from "@octokit/rest";
 
 const apiOrigin = "https://api.github.com";
+const cloudflareWorkersAndPagesBotId = 73_139_402;
 const codeRabbitBotId = 136_622_811;
 const githubActionsBotId = 41_898_282;
 const greptileBotId = 165_735_046;
@@ -39,13 +40,18 @@ type OpenPullRequest = {
 };
 
 type SuppressionReason =
+  | "cloudflare_deployment_comment"
   | "ignored_ai_review"
   | "open_pull_request_by_other_author"
   | "pr_closer_warning"
   | "release_pull_request"
   | "renovate_auto_merge";
 
-type IgnoredActivityKind = "current_user" | "ignored_ai_review" | "pr_closer_warning";
+type IgnoredActivityKind =
+  | "cloudflare_deployment_comment"
+  | "current_user"
+  | "ignored_ai_review"
+  | "pr_closer_warning";
 
 type SuppressionRuleContext = {
   coordinates: PullRequestCoordinates;
@@ -63,6 +69,7 @@ type SuppressionRule = {
 
 export type Summary = {
   aiReviewMarkedDone: number;
+  cloudflareDeploymentMarkedDone: number;
   evaluated: number;
   markedDone: number;
   notifications: number;
@@ -181,6 +188,7 @@ const createGitHub = (token: string, requestBudget?: number): Octokit => {
 export const createEmptySummary = (): Summary => {
   return {
     aiReviewMarkedDone: 0,
+    cloudflareDeploymentMarkedDone: 0,
     evaluated: 0,
     markedDone: 0,
     notifications: 0,
@@ -355,6 +363,7 @@ export const getActivitySuppressionReason = async (
 ): Promise<SuppressionReason | undefined> => {
   const activityBoundary = lastReadAt ?? "1970-01-01T00:00:00Z";
   let foundIgnoredAiReview = false;
+  let foundCloudflareDeploymentComment = false;
   let foundPrCloserWarning = false;
   for (const event of events) {
     for (const activity of getTimelineActivities(event)) {
@@ -393,6 +402,9 @@ export const getActivitySuppressionReason = async (
         if (ignoredActivityKind === "ignored_ai_review") {
           foundIgnoredAiReview = true;
         }
+        if (ignoredActivityKind === "cloudflare_deployment_comment") {
+          foundCloudflareDeploymentComment = true;
+        }
         if (ignoredActivityKind === "pr_closer_warning") {
           foundPrCloserWarning = true;
         }
@@ -402,6 +414,9 @@ export const getActivitySuppressionReason = async (
 
   if (foundPrCloserWarning) {
     return "pr_closer_warning";
+  }
+  if (foundCloudflareDeploymentComment) {
+    return "cloudflare_deployment_comment";
   }
   if (foundIgnoredAiReview) {
     return "ignored_ai_review";
@@ -420,6 +435,9 @@ const getIgnoredActivityKind = (
   }
   if (actorId === currentUserId) {
     return "current_user";
+  }
+  if (actorId === cloudflareWorkersAndPagesBotId && activity.event === "commented") {
+    return "cloudflare_deployment_comment";
   }
   if (ignoredAiReviewerIds.has(actorId) && activity.isReviewActivity) {
     return "ignored_ai_review";
@@ -805,6 +823,8 @@ export const triageNotifications = async ({
           summary.openPullRequestMarkedDone += 1;
         } else if (audit.reason === "pr_closer_warning") {
           summary.prCloserWarningMarkedDone += 1;
+        } else if (audit.reason === "cloudflare_deployment_comment") {
+          summary.cloudflareDeploymentMarkedDone += 1;
         } else {
           summary.aiReviewMarkedDone += 1;
         }

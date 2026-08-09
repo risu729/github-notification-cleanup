@@ -44,6 +44,8 @@ A notification is marked done when any of these rules match:
   the authenticated user; or
 - every attributable post-read activity is otherwise ignorable and at least one
   is a `github-actions[bot]` PR auto-close warning in a `jdx/*` repository; or
+- every attributable post-read activity is otherwise ignorable and at least one
+  is a comment from `cloudflare-workers-and-pages[bot]`; or
 - every attributable timeline event at or after the notification's `last_read_at`
   timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
   one of those events is an AI comment or review.
@@ -57,8 +59,8 @@ authenticated user's ID. Closed pull requests and pull requests with an unknown
 author are retained by this rule.
 
 The actor checks use immutable GitHub IDs. The current user ID is retrieved from
-the authenticated `GH_TOKEN`; the AI reviewer IDs are fixed. With no read
-timestamp, the entire timeline is checked. An unknown event, unattributable
+the authenticated `GH_TOKEN`; the automation and AI reviewer IDs are fixed.
+With no read timestamp, the entire timeline is checked. An unknown event, unattributable
 actor, or activity from anyone else retains the notification. The thread is
 fetched again immediately before it is marked done to reduce the chance of
 hiding a concurrent update. GitHub does not provide a conditional mark-done
@@ -67,6 +69,10 @@ operation, so a narrow race remains between those two requests.
 Only comments, reviews, commits, and cross-references attributable to `risu729`
 are eligible for AI-review suppression. Other timeline activity retains the
 notification.
+
+Cloudflare deployment comments are recognized by the immutable
+`cloudflare-workers-and-pages[bot]` ID. Other actors and non-comment events,
+including merge and close events, retain the notification.
 
 PR auto-close warnings are recognized by the `<!-- pr-closer-warning` marker
 emitted by `jdx/pr-closer` and the immutable `github-actions[bot]` ID. The
