@@ -41,9 +41,10 @@ type SuppressionRuleContext = {
   pullRequest: PullRequest;
 };
 
-type SuppressionRule = (
-  context: SuppressionRuleContext,
-) => Promise<SuppressionReason | undefined> | SuppressionReason | undefined;
+type SuppressionRule = {
+  matches: (context: SuppressionRuleContext) => boolean | Promise<boolean>;
+  reason: SuppressionReason;
+};
 
 export type Summary = {
   aiReviewMarkedDone: number;
@@ -404,41 +405,38 @@ const hasOnlyIgnoredReviewActivity = async (
   });
 };
 
-const suppressionRules: SuppressionRule[] = [
-  ({ pullRequest }) => {
-    if (pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null) {
-      return "renovate_auto_merge";
-    }
-    return undefined;
+const suppressionRulesByPriority: SuppressionRule[] = [
+  {
+    matches: ({ pullRequest }) => {
+      return pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null;
+    },
+    reason: "renovate_auto_merge",
   },
-  ({ coordinates, pullRequest }) => {
-    if (
-      isReleasePullRequest({
+  {
+    matches: ({ coordinates, pullRequest }) => {
+      return isReleasePullRequest({
         headRef: pullRequest.head.ref,
         owner: coordinates.owner,
         repo: coordinates.repo,
         title: pullRequest.title,
-      })
-    ) {
-      return "release_pull_request";
-    }
-    return undefined;
+      });
+    },
+    reason: "release_pull_request",
   },
-  async ({ coordinates, currentUserId, lastReadAt, octokit }) => {
-    if (await hasOnlyIgnoredReviewActivity(octokit, coordinates, lastReadAt, currentUserId)) {
-      return "ignored_ai_review";
-    }
-    return undefined;
+  {
+    matches: async ({ coordinates, currentUserId, lastReadAt, octokit }) => {
+      return await hasOnlyIgnoredReviewActivity(octokit, coordinates, lastReadAt, currentUserId);
+    },
+    reason: "ignored_ai_review",
   },
 ];
 
 const getSuppressionReason = async (
   context: SuppressionRuleContext,
 ): Promise<SuppressionReason | undefined> => {
-  for (const rule of suppressionRules) {
-    const reason = await rule(context);
-    if (reason !== undefined) {
-      return reason;
+  for (const rule of suppressionRulesByPriority) {
+    if (await rule.matches(context)) {
+      return rule.reason;
     }
   }
   return undefined;
