@@ -136,6 +136,7 @@ describe("notification discovery", () => {
       renovateMarkedDone: 0,
       retained: 0,
       retried: 0,
+      retryExhausted: 0,
       retryPending: 0,
     });
   });
@@ -339,6 +340,40 @@ describe("notification Queue consumer", () => {
     expect(queueResult.retryMessages).toEqual([{ msgId: "message-0" }]);
   });
 
+  test("retains a thread that is no longer a pull request", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      const pathname = new URL(url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1") {
+        return response({
+          ...thread("1", 1),
+          subject: {
+            type: "Issue",
+            url: "https://api.github.com/repos/owner/repo/issues/1",
+          },
+        });
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const batch = queueBatch([notification("1", 1)]);
+    const context = createExecutionContext();
+
+    await worker.queue(batch, env);
+
+    const queueResult = await getQueueResult(batch, context);
+    expect(queueResult.explicitAcks).toEqual(["message-0"]);
+    expect(queueResult.retryMessages).toEqual([]);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual({ outcome: "retained", reason: "no_longer_pull_request" });
+  });
+
   test("retains an evaluation that reaches its GitHub request budget", async () => {
     const timeline = [
       ...Array.from({ length: 14 }, (_, index) => ({
@@ -408,5 +443,7 @@ describe("notification Queue consumer", () => {
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
     expect(audit).toEqual({ outcome: "retained", reason: "retry_exhausted" });
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ retryExhausted: 1 });
   });
 });

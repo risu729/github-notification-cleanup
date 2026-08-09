@@ -54,5 +54,8 @@
     "crons": ["*/10 * * * *"],
   },
   "upload_source_maps": true,
+  "vars": {
+    "DEAD_LETTER_QUEUE_NAME": "github-notification-cleanup-failures",
+  },
   "workers_dev": false,
 }

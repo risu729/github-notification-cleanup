@@ -30,6 +30,7 @@ export type Summary = {
   renovateMarkedDone: number;
   retained: number;
   retried: number;
+  retryExhausted: number;
   retryPending: number;
 };
 
@@ -143,6 +144,7 @@ export const createEmptySummary = (): Summary => {
     renovateMarkedDone: 0,
     retained: 0,
     retried: 0,
+    retryExhausted: 0,
     retryPending: 0,
   };
 };

@@ -19,7 +19,6 @@ type DiscoveryOptions = {
 };
 
 const queueBatchSize = 100;
-const deadLetterQueueName = "github-notification-cleanup-failures";
 
 const enqueueNotifications = async (
   queue: Queue<Notification>,
@@ -153,6 +152,7 @@ const recordExhaustedBatch = async (batch: MessageBatch<Notification>, env: Env)
   summary.pullRequests = notifications.length;
   summary.retained = notifications.length;
   summary.retried = notifications.length;
+  summary.retryExhausted = notifications.length;
   const audits: NotificationAudit[] = notifications.map((notification) => ({
     notification,
     outcome: "retained",
@@ -173,7 +173,7 @@ const recordExhaustedBatch = async (batch: MessageBatch<Notification>, env: Env)
 
 export default {
   async queue(batch, env): Promise<void> {
-    if (batch.queue === deadLetterQueueName) {
+    if (batch.queue === env.DEAD_LETTER_QUEUE_NAME) {
       await recordExhaustedBatch(batch, env);
     } else {
       await processNotificationBatch(batch, env);
