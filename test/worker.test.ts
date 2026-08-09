@@ -144,6 +144,7 @@ describe("notification discovery", () => {
       evaluated: 0,
       markedDone: 0,
       notifications: 2,
+      prCloserWarningMarkedDone: 0,
       pullRequests: 1,
       releaseMarkedDone: 0,
       renovateMarkedDone: 0,
@@ -333,6 +334,71 @@ describe("notification Queue consumer", () => {
     expect(audit).toEqual({ outcome: "marked_done", reason: "release_pull_request" });
     const [run] = await loadRuns();
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ releaseMarkedDone: 1 });
+  });
+
+  test("marks a jdx PR closer warning done and acknowledges it", async () => {
+    const warningNotification: Notification = {
+      ...notification("1", 11_686),
+      subjectUrl: "https://api.github.com/repos/jdx/mise/pulls/11686",
+    };
+    const warningThread = {
+      ...thread("1", 11_686),
+      subject: {
+        type: "PullRequest",
+        url: warningNotification.subjectUrl,
+      },
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      const pathname = new URL(url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1" && method === "GET") {
+        return response(warningThread);
+      }
+      if (pathname === "/repos/jdx/mise/pulls/11686") {
+        return response(
+          pullRequest(11_686, {
+            html_url: "https://github.com/jdx/mise/pull/11686",
+            user: { id: 79_110_363 },
+          }),
+        );
+      }
+      if (pathname === "/repos/jdx/mise/issues/11686/timeline") {
+        return response([
+          {
+            actor: { id: 41_898_282 },
+            body: "Warning\n\n<!-- pr-closer-warning\ndate: 2026-08-04\nhead_sha: abc123\n-->",
+            created_at: "2026-08-04T00:01:00Z",
+            event: "commented",
+          },
+        ]);
+      }
+      if (pathname === "/notifications/threads/1" && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const batch = queueBatch([warningNotification]);
+    const context = createExecutionContext();
+
+    await worker.queue(batch, env);
+
+    const queueResult = await getQueueResult(batch, context);
+    expect(queueResult.explicitAcks).toEqual(["message-0"]);
+    expect(queueResult.retryMessages).toEqual([]);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual({ outcome: "marked_done", reason: "pr_closer_warning" });
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      prCloserWarningMarkedDone: 1,
+    });
   });
 
   test("records and retries a transient notification failure", async () => {

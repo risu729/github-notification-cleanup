@@ -40,6 +40,8 @@ A notification is marked done when any of these rules match:
 - its pull request was opened by Renovate and has GitHub auto-merge enabled; or
 - its head branch begins with `release` in any `jdx/*` or `risu729/*`
   repository; or
+- every attributable post-read activity is otherwise ignorable and at least one
+  is a `github-actions[bot]` PR auto-close warning in a `jdx/*` repository; or
 - every attributable timeline event at or after the notification's `last_read_at`
   timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
   one of those events is an AI comment or review.
@@ -58,6 +60,10 @@ operation, so a narrow race remains between those two requests.
 Only comments, reviews, commits, and cross-references attributable to `risu729`
 are eligible for AI-review suppression. Other timeline activity retains the
 notification.
+
+PR auto-close warnings are recognized by the `<!-- pr-closer-warning` marker
+emitted by `jdx/pr-closer` and the immutable `github-actions[bot]` ID. The
+unmarked auto-close comment and the subsequent `closed` event are retained.
 
 Renovate pull requests without GitHub auto-merge, such as major updates that
 need manual review, are only suppressed by the stricter AI-review rule. Marking
