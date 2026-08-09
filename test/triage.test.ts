@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { hasOnlyIgnoredActivities as classifyActivities } from "../src/triage";
+import {
+  hasOnlyIgnoredActivities as classifyActivities,
+  isReleasePullRequest,
+} from "../src/triage";
 
 const aiReviewerId = 136_622_811;
 const currentUserId = 79_110_363;
@@ -34,6 +37,42 @@ const hasOnlyIgnoredActivities = async (
 ): Promise<boolean> => {
   return await classifyActivities(events, lastReadAt, currentUserId, loadCommitActorIds);
 };
+
+describe("release pull request suppression", () => {
+  test.each([
+    {
+      headRef: "release",
+      owner: "jdx",
+    },
+    {
+      headRef: "release-please--branches--main--components--mise",
+      owner: "jdx",
+    },
+    {
+      headRef: "release-plz-2026-08-03T19-44-40Z",
+      owner: "risu729",
+    },
+    {
+      headRef: "release",
+      owner: "risu729",
+    },
+  ])("suppresses $owner release branches", (pullRequest) => {
+    expect(isReleasePullRequest(pullRequest)).toBe(true);
+  });
+
+  test.each([
+    {
+      headRef: "release",
+      owner: "someone-else",
+    },
+    {
+      headRef: "feature/automate-release",
+      owner: "jdx",
+    },
+  ])("retains non-release match %#", (pullRequest) => {
+    expect(isReleasePullRequest(pullRequest)).toBe(false);
+  });
+});
 
 describe("AI review notification suppression", () => {
   test("suppresses an AI-only comment after the thread was read", async () => {

@@ -35,12 +35,17 @@ reserves a queued full-check flag for a future control UI. Once requested, it
 remains queued after a systemic failure and is consumed after a successful or
 partial scan.
 
-A notification is marked done when either:
+A notification is marked done when any of these rules match:
 
 - its pull request was opened by Renovate and has GitHub auto-merge enabled; or
+- its head branch begins with `release` in any `jdx/*` or `risu729/*`
+  repository; or
 - every attributable timeline event at or after the notification's `last_read_at`
   timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
   one of those events is an AI comment or review.
+
+Release pull request suppression relies only on the head branch name. Titles,
+labels, and authors vary across the supported repositories and are not checked.
 
 The actor checks use immutable GitHub IDs. The current user ID is retrieved from
 the authenticated `GH_TOKEN`; the AI reviewer IDs are fixed. With no read
