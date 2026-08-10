@@ -140,7 +140,7 @@ describe("notification discovery", () => {
       status: "success",
     });
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject<Summary>({
-      aiReviewMarkedDone: 0,
+      botReviewMarkedDone: 0,
       cloudflareDeploymentMarkedDone: 0,
       evaluated: 0,
       markedDone: 0,

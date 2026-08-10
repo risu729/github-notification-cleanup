@@ -11,8 +11,13 @@ const jdxUserId = 216_188;
 const miseEnDevBotId = 123_107_610;
 const prCloserWarningMarker = "<!-- pr-closer-warning\n";
 const sourceryBotId = 58_596_630;
-const ignoredAiReviewerIds = new Set([codeRabbitBotId, greptileBotId, sourceryBotId]);
-const ignoredBotIds = new Set([...ignoredAiReviewerIds, brewTestBotId, miseEnDevBotId]);
+const ignoredBotIds = new Set([
+  brewTestBotId,
+  codeRabbitBotId,
+  greptileBotId,
+  miseEnDevBotId,
+  sourceryBotId,
+]);
 const ignoredMergerIdsByOwner = new Map([["jdx", new Set([jdxUserId])]]);
 const ignoredOpenPullRequestOwners = new Set(["jdx"]);
 const maxGitHubRequestsPerNotification = 15;
@@ -40,7 +45,7 @@ type OpenPullRequest = {
 
 type SuppressionReason =
   | "cloudflare_deployment_comment"
-  | "ignored_ai_review"
+  | "ignored_bot_review"
   | "merged_by_ignored_merger"
   | "open_pull_request_by_other_author"
   | "pr_closer_warning"
@@ -50,7 +55,7 @@ type SuppressionReason =
 type IgnoredActivityKind =
   | "cloudflare_deployment_comment"
   | "current_user"
-  | "ignored_ai_review"
+  | "ignored_bot_review"
   | "ignored_bot_reference"
   | "ignored_merge"
   | "pr_closer_warning";
@@ -70,7 +75,7 @@ type SuppressionRule = {
 };
 
 export type Summary = {
-  aiReviewMarkedDone: number;
+  botReviewMarkedDone: number;
   cloudflareDeploymentMarkedDone: number;
   evaluated: number;
   markedDone: number;
@@ -190,7 +195,7 @@ const createGitHub = (token: string, requestBudget?: number): Octokit => {
 
 export const createEmptySummary = (): Summary => {
   return {
-    aiReviewMarkedDone: 0,
+    botReviewMarkedDone: 0,
     cloudflareDeploymentMarkedDone: 0,
     evaluated: 0,
     markedDone: 0,
@@ -382,7 +387,7 @@ export const getActivitySuppressionReason = async (
       return [activity.occurredAt];
     }),
   );
-  let foundIgnoredAiReview = false;
+  let foundIgnoredBotReview = false;
   let foundCloudflareDeploymentComment = false;
   let foundIgnoredMerge = false;
   let foundPrCloserWarning = false;
@@ -419,8 +424,8 @@ export const getActivitySuppressionReason = async (
       if (ignoredActivityKind === undefined) {
         return undefined;
       }
-      if (ignoredActivityKind === "ignored_ai_review") {
-        foundIgnoredAiReview = true;
+      if (ignoredActivityKind === "ignored_bot_review") {
+        foundIgnoredBotReview = true;
       }
       if (ignoredActivityKind === "ignored_merge" && activity.event === "merged") {
         foundIgnoredMerge = true;
@@ -443,8 +448,8 @@ export const getActivitySuppressionReason = async (
   if (foundIgnoredMerge) {
     return "merged_by_ignored_merger";
   }
-  if (foundIgnoredAiReview) {
-    return "ignored_ai_review";
+  if (foundIgnoredBotReview) {
+    return "ignored_bot_review";
   }
   return undefined;
 };
@@ -462,8 +467,8 @@ const getIgnoredActivityKind = (
   if (actorId === cloudflareWorkersAndPagesBotId && activity.event === "commented") {
     return "cloudflare_deployment_comment";
   }
-  if (ignoredAiReviewerIds.has(actorId) && activity.isReviewActivity) {
-    return "ignored_ai_review";
+  if (ignoredBotIds.has(actorId) && activity.isReviewActivity) {
+    return "ignored_bot_review";
   }
   if (ignoredBotIds.has(actorId) && activity.event === "cross-referenced") {
     return "ignored_bot_reference";
@@ -864,7 +869,7 @@ export const triageNotifications = async ({
         } else if (audit.reason === "merged_by_ignored_merger") {
           summary.mergeMarkedDone += 1;
         } else {
-          summary.aiReviewMarkedDone += 1;
+          summary.botReviewMarkedDone += 1;
         }
       } else if (audit.outcome === "retained") {
         if (audit.reason !== "no_longer_pull_request") {
