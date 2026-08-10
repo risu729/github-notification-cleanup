@@ -46,6 +46,8 @@ A notification is marked done when any of these rules match:
   is a `github-actions[bot]` PR auto-close warning in a `jdx/*` repository; or
 - every attributable post-read activity is otherwise ignorable and at least one
   is a comment from `cloudflare-workers-and-pages[bot]`; or
+- every attributable post-read activity is otherwise ignorable and at least one
+  is a merge by `jdx` in a `jdx/*` repository; or
 - every attributable timeline event at or after the notification's `last_read_at`
   timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
   one of those events is an AI comment or review.
@@ -68,9 +70,13 @@ chance of hiding a concurrent update. GitHub does not provide a conditional
 mark-done operation, so a narrow race remains between those two requests.
 
 Comments and reviews by CodeRabbit, Greptile, and Sourcery trigger AI-review
-suppression. Cross-references by those bots are ignored as supporting activity
-but do not trigger suppression by themselves. Commits must be attributable to
-the authenticated user; other timeline activity retains the notification.
+suppression. Cross-references by those bots, `mise-en-dev`, and `BrewTestBot`
+are ignored as supporting activity but do not trigger suppression by
+themselves. Commits must be attributable to the authenticated user; other
+timeline activity retains the notification.
+
+In `jdx/*`, a merge by `jdx` and a close by `jdx` with the exact same timestamp
+are ignored as a pair. A close without that matching merge remains blocking.
 
 Cloudflare deployment comments are recognized by the immutable
 `cloudflare-workers-and-pages[bot]` ID. Other actors and non-comment events,

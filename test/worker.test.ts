@@ -144,6 +144,7 @@ describe("notification discovery", () => {
       cloudflareDeploymentMarkedDone: 0,
       evaluated: 0,
       markedDone: 0,
+      mergeMarkedDone: 0,
       notifications: 2,
       openPullRequestMarkedDone: 0,
       prCloserWarningMarkedDone: 0,
@@ -466,6 +467,74 @@ describe("notification Queue consumer", () => {
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
       cloudflareDeploymentMarkedDone: 1,
     });
+  });
+
+  test("marks a jdx merge with its paired close done and acknowledges it", async () => {
+    const mergeNotification: Notification = {
+      ...notification("1", 11_550),
+      subjectUrl: "https://api.github.com/repos/jdx/mise/pulls/11550",
+    };
+    const mergeThread = {
+      ...thread("1", 11_550),
+      subject: {
+        type: "PullRequest",
+        url: mergeNotification.subjectUrl,
+      },
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      const pathname = new URL(url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1" && method === "GET") {
+        return response(mergeThread);
+      }
+      if (pathname === "/repos/jdx/mise/pulls/11550") {
+        return response(
+          pullRequest(11_550, {
+            html_url: "https://github.com/jdx/mise/pull/11550",
+            state: "closed",
+            user: { id: 79_110_363 },
+          }),
+        );
+      }
+      if (pathname === "/repos/jdx/mise/issues/11550/timeline") {
+        return response([
+          {
+            actor: { id: 216_188 },
+            created_at: "2026-08-04T00:01:00Z",
+            event: "merged",
+          },
+          {
+            actor: { id: 216_188 },
+            created_at: "2026-08-04T00:01:00Z",
+            event: "closed",
+          },
+        ]);
+      }
+      if (pathname === "/notifications/threads/1" && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const batch = queueBatch([mergeNotification]);
+    const context = createExecutionContext();
+
+    await worker.queue(batch, env);
+
+    const queueResult = await getQueueResult(batch, context);
+    expect(queueResult.explicitAcks).toEqual(["message-0"]);
+    expect(queueResult.retryMessages).toEqual([]);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual({ outcome: "marked_done", reason: "merged_by_ignored_merger" });
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ mergeMarkedDone: 1 });
   });
 
   test("retains an unmarked jdx GitHub Actions comment", async () => {

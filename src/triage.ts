@@ -2,13 +2,18 @@ import { RequestError } from "@octokit/request-error";
 import { Octokit } from "@octokit/rest";
 
 const apiOrigin = "https://api.github.com";
+const brewTestBotId = 1_589_480;
 const cloudflareWorkersAndPagesBotId = 73_139_402;
 const codeRabbitBotId = 136_622_811;
 const githubActionsBotId = 41_898_282;
 const greptileBotId = 165_735_046;
+const jdxUserId = 216_188;
+const miseEnDevBotId = 123_107_610;
 const prCloserWarningMarker = "<!-- pr-closer-warning\n";
 const sourceryBotId = 58_596_630;
 const ignoredAiReviewerIds = new Set([codeRabbitBotId, greptileBotId, sourceryBotId]);
+const ignoredBotIds = new Set([...ignoredAiReviewerIds, brewTestBotId, miseEnDevBotId]);
+const ignoredMergerIdsByOwner = new Map([["jdx", new Set([jdxUserId])]]);
 const ignoredOpenPullRequestOwners = new Set(["jdx"]);
 const maxGitHubRequestsPerNotification = 15;
 const renovateBotId = 29_139_614;
@@ -36,6 +41,7 @@ type OpenPullRequest = {
 type SuppressionReason =
   | "cloudflare_deployment_comment"
   | "ignored_ai_review"
+  | "merged_by_ignored_merger"
   | "open_pull_request_by_other_author"
   | "pr_closer_warning"
   | "release_pull_request"
@@ -44,8 +50,9 @@ type SuppressionReason =
 type IgnoredActivityKind =
   | "cloudflare_deployment_comment"
   | "current_user"
-  | "ignored_ai_reference"
   | "ignored_ai_review"
+  | "ignored_bot_reference"
+  | "ignored_merge"
   | "pr_closer_warning";
 
 type SuppressionRuleContext = {
@@ -67,6 +74,7 @@ export type Summary = {
   cloudflareDeploymentMarkedDone: number;
   evaluated: number;
   markedDone: number;
+  mergeMarkedDone: number;
   notifications: number;
   openPullRequestMarkedDone: number;
   prCloserWarningMarkedDone: number;
@@ -186,6 +194,7 @@ export const createEmptySummary = (): Summary => {
     cloudflareDeploymentMarkedDone: 0,
     evaluated: 0,
     markedDone: 0,
+    mergeMarkedDone: 0,
     notifications: 0,
     openPullRequestMarkedDone: 0,
     prCloserWarningMarkedDone: 0,
@@ -357,46 +366,70 @@ export const getActivitySuppressionReason = async (
   loadCommitActorIds: CommitActorLoader,
 ): Promise<SuppressionReason | undefined> => {
   const activityBoundary = lastReadAt ?? "1970-01-01T00:00:00Z";
+  const activities = events.flatMap((event) => getTimelineActivities(event));
+  const ignoredMergeTimestamps = new Set(
+    activities.flatMap((activity) => {
+      const [actorId] = activity.actorIds;
+      if (
+        activity.actorIds.length !== 1 ||
+        actorId === undefined ||
+        activity.event !== "merged" ||
+        activity.occurredAt === undefined ||
+        !isIgnoredMerger(owner, actorId)
+      ) {
+        return [];
+      }
+      return [activity.occurredAt];
+    }),
+  );
   let foundIgnoredAiReview = false;
   let foundCloudflareDeploymentComment = false;
+  let foundIgnoredMerge = false;
   let foundPrCloserWarning = false;
-  for (const event of events) {
-    for (const activity of getTimelineActivities(event)) {
-      const afterLastRead = isAtOrAfter(activity.occurredAt, activityBoundary);
-      if (afterLastRead === false) {
-        continue;
-      }
-      if (afterLastRead === undefined) {
+  for (const activity of activities) {
+    const afterLastRead = isAtOrAfter(activity.occurredAt, activityBoundary);
+    if (afterLastRead === false) {
+      continue;
+    }
+    if (afterLastRead === undefined) {
+      return undefined;
+    }
+
+    if (activity.event === "committed") {
+      if (activity.sha === undefined) {
         return undefined;
       }
-
-      if (activity.event === "committed") {
-        if (activity.sha === undefined) {
-          return undefined;
-        }
-        const commitActorIds = await loadCommitActorIds(activity.sha);
-        if (commitActorIds === undefined || !commitActorIds.includes(currentUserId)) {
-          return undefined;
-        }
-      } else {
-        const actorIds = activity.actorIds;
-        const [actorId] = actorIds;
-        if (actorIds.length !== 1 || actorId === undefined) {
-          return undefined;
-        }
-        const ignoredActivityKind = getIgnoredActivityKind(activity, actorId, currentUserId, owner);
-        if (ignoredActivityKind === undefined) {
-          return undefined;
-        }
-        if (ignoredActivityKind === "ignored_ai_review") {
-          foundIgnoredAiReview = true;
-        }
-        if (ignoredActivityKind === "cloudflare_deployment_comment") {
-          foundCloudflareDeploymentComment = true;
-        }
-        if (ignoredActivityKind === "pr_closer_warning") {
-          foundPrCloserWarning = true;
-        }
+      const commitActorIds = await loadCommitActorIds(activity.sha);
+      if (commitActorIds === undefined || !commitActorIds.includes(currentUserId)) {
+        return undefined;
+      }
+    } else {
+      const actorIds = activity.actorIds;
+      const [actorId] = actorIds;
+      if (actorIds.length !== 1 || actorId === undefined) {
+        return undefined;
+      }
+      const ignoredActivityKind = getIgnoredActivityKind(
+        activity,
+        actorId,
+        currentUserId,
+        owner,
+        activity.occurredAt !== undefined && ignoredMergeTimestamps.has(activity.occurredAt),
+      );
+      if (ignoredActivityKind === undefined) {
+        return undefined;
+      }
+      if (ignoredActivityKind === "ignored_ai_review") {
+        foundIgnoredAiReview = true;
+      }
+      if (ignoredActivityKind === "ignored_merge" && activity.event === "merged") {
+        foundIgnoredMerge = true;
+      }
+      if (ignoredActivityKind === "cloudflare_deployment_comment") {
+        foundCloudflareDeploymentComment = true;
+      }
+      if (ignoredActivityKind === "pr_closer_warning") {
+        foundPrCloserWarning = true;
       }
     }
   }
@@ -406,6 +439,9 @@ export const getActivitySuppressionReason = async (
   }
   if (foundCloudflareDeploymentComment) {
     return "cloudflare_deployment_comment";
+  }
+  if (foundIgnoredMerge) {
+    return "merged_by_ignored_merger";
   }
   if (foundIgnoredAiReview) {
     return "ignored_ai_review";
@@ -418,6 +454,7 @@ const getIgnoredActivityKind = (
   actorId: number,
   currentUserId: number,
   owner: string,
+  hasMatchingIgnoredMerge: boolean,
 ): IgnoredActivityKind | undefined => {
   if (actorId === currentUserId) {
     return "current_user";
@@ -428,8 +465,14 @@ const getIgnoredActivityKind = (
   if (ignoredAiReviewerIds.has(actorId) && activity.isReviewActivity) {
     return "ignored_ai_review";
   }
-  if (ignoredAiReviewerIds.has(actorId) && activity.event === "cross-referenced") {
-    return "ignored_ai_reference";
+  if (ignoredBotIds.has(actorId) && activity.event === "cross-referenced") {
+    return "ignored_bot_reference";
+  }
+  if (
+    isIgnoredMerger(owner, actorId) &&
+    (activity.event === "merged" || (activity.event === "closed" && hasMatchingIgnoredMerge))
+  ) {
+    return "ignored_merge";
   }
   if (
     owner === "jdx" &&
@@ -440,6 +483,10 @@ const getIgnoredActivityKind = (
     return "pr_closer_warning";
   }
   return undefined;
+};
+
+const isIgnoredMerger = (owner: string, actorId: number): boolean => {
+  return ignoredMergerIdsByOwner.get(owner)?.has(actorId) === true;
 };
 
 const loadActivitySuppressionReason = async (
@@ -814,6 +861,8 @@ export const triageNotifications = async ({
           summary.prCloserWarningMarkedDone += 1;
         } else if (audit.reason === "cloudflare_deployment_comment") {
           summary.cloudflareDeploymentMarkedDone += 1;
+        } else if (audit.reason === "merged_by_ignored_merger") {
+          summary.mergeMarkedDone += 1;
         } else {
           summary.aiReviewMarkedDone += 1;
         }
