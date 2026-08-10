@@ -42,15 +42,16 @@ A notification is marked done when any of these rules match:
   repository; or
 - its pull request is open in `jdx/*` and was authored by someone other than
   the authenticated user; or
-- every attributable post-read activity is otherwise ignorable and at least one
-  is a `github-actions[bot]` PR auto-close warning in a `jdx/*` repository; or
-- every attributable post-read activity is otherwise ignorable and at least one
-  is a comment from `cloudflare-workers-and-pages[bot]`; or
-- every attributable post-read activity is otherwise ignorable and at least one
-  is a merge by `jdx` in a `jdx/*` repository; or
-- every attributable timeline event at or after the notification's `last_read_at`
-  timestamp is from the authenticated user or a configured bot, and at least
-  one of those events is a configured bot comment or review.
+- every attributable activity in the notification window is otherwise ignorable
+  and at least one is a `github-actions[bot]` PR auto-close warning in a `jdx/*`
+  repository; or
+- every attributable activity in the notification window is otherwise ignorable
+  and at least one is a comment from `cloudflare-workers-and-pages[bot]`; or
+- every attributable activity in the notification window is otherwise ignorable
+  and at least one is a merge by `jdx` in a `jdx/*` repository; or
+- every attributable activity in the notification window is from the
+  authenticated user or a configured bot, and at least one is a configured bot
+  comment or review.
 
 Release pull request suppression relies only on the head branch name. Titles,
 labels, and authors vary across the supported repositories and are not checked.
@@ -62,12 +63,15 @@ author are retained by this rule.
 
 The actor checks use immutable GitHub IDs. The current user ID is retrieved from
 the authenticated `GH_TOKEN`; the automation and bot IDs are fixed.
-With no read timestamp, the entire timeline is checked. Any timestamped event
-attributed to the authenticated user is ignored. An unattributable event or
-activity from anyone else retains the notification unless explicitly allowed.
-The thread is fetched again immediately before it is marked done to reduce the
-chance of hiding a concurrent update. GitHub does not provide a conditional
-mark-done operation, so a narrow race remains between those two requests.
+The notification window covers the five minutes ending at the notification's
+`updated_at` timestamp. This accounts for GitHub updating a notification shortly
+after its causal event and keeps read notifications classifiable. Activity
+outside that window is ignored. Within the window, activity attributed to the
+authenticated user is ignored, while unattributable activity or activity from
+anyone else retains the notification unless explicitly allowed. The thread is
+fetched again immediately before it is marked done to reduce the chance of
+hiding a concurrent update. GitHub does not provide a conditional mark-done
+operation, so a narrow race remains between those two requests.
 
 Comments and reviews by CodeRabbit, Greptile, Sourcery, `mise-en-dev`, and
 `BrewTestBot` trigger bot-review suppression. Cross-references by those bots are

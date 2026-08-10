@@ -30,7 +30,7 @@ const notification = (id: string, pullNumber: number): Notification => ({
   lastReadAt: "2026-08-03T00:00:00Z",
   subjectUrl: `https://api.github.com/repos/owner/repo/pulls/${pullNumber}`,
   unread: false,
-  updatedAt: "2026-08-04T00:00:00Z",
+  updatedAt: "2026-08-04T00:02:00Z",
 });
 
 const apiNotification = (id: string, pullNumber: number): Record<string, unknown> => ({
@@ -41,7 +41,7 @@ const apiNotification = (id: string, pullNumber: number): Record<string, unknown
     url: `https://api.github.com/repos/owner/repo/pulls/${pullNumber}`,
   },
   unread: false,
-  updated_at: "2026-08-04T00:00:00Z",
+  updated_at: "2026-08-04T00:02:00Z",
 });
 
 const thread = (id: string, pullNumber: number): Record<string, unknown> => ({
@@ -52,7 +52,7 @@ const thread = (id: string, pullNumber: number): Record<string, unknown> => ({
     url: `https://api.github.com/repos/owner/repo/pulls/${pullNumber}`,
   },
   unread: false,
-  updated_at: "2026-08-04T00:00:00Z",
+  updated_at: "2026-08-04T00:02:00Z",
 });
 
 const pullRequest = (
@@ -342,14 +342,18 @@ describe("notification Queue consumer", () => {
   test("marks a jdx PR closer warning done and acknowledges it", async () => {
     const warningNotification: Notification = {
       ...notification("1", 11_686),
+      lastReadAt: "2026-08-04T01:00:00Z",
       subjectUrl: "https://api.github.com/repos/jdx/mise/pulls/11686",
+      updatedAt: "2026-08-04T00:01:22Z",
     };
     const warningThread = {
       ...thread("1", 11_686),
+      last_read_at: warningNotification.lastReadAt,
       subject: {
         type: "PullRequest",
         url: warningNotification.subjectUrl,
       },
+      updated_at: warningNotification.updatedAt,
     };
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =
@@ -938,13 +942,13 @@ describe("notification Queue consumer", () => {
   test("retains an evaluation that reaches its GitHub request budget", async () => {
     const timeline = [
       ...Array.from({ length: 14 }, (_, index) => ({
-        committer: { date: `2026-08-04T00:${String(index + 1).padStart(2, "0")}:00Z` },
+        committer: { date: `2026-08-04T00:01:${String(index).padStart(2, "0")}Z` },
         event: "committed",
         sha: `commit-${index}`,
       })),
       {
         event: "reviewed",
-        submitted_at: "2026-08-04T00:20:00Z",
+        submitted_at: "2026-08-04T00:01:30Z",
         user: { id: 136_622_811 },
       },
     ];

@@ -20,6 +20,7 @@ const ignoredBotIds = new Set([
 ]);
 const ignoredMergerIdsByOwner = new Map([["jdx", new Set([jdxUserId])]]);
 const ignoredOpenPullRequestOwners = new Set(["jdx"]);
+const notificationActivityLookbackMilliseconds = 5 * 60 * 1_000;
 const maxGitHubRequestsPerNotification = 15;
 const renovateBotId = 29_139_614;
 
@@ -63,7 +64,7 @@ type IgnoredActivityKind =
 type SuppressionRuleContext = {
   coordinates: PullRequestCoordinates;
   currentUserId: number;
-  lastReadAt: string | null;
+  notificationUpdatedAt: string;
   octokit: Octokit;
   pullRequest: PullRequest;
 };
@@ -355,27 +356,37 @@ const getTimelineActivities = (event: unknown): TimelineActivity[] => {
   ];
 };
 
-const isAtOrAfter = (value: string | undefined, boundary: string): boolean | undefined => {
+const isWithinNotificationActivityWindow = (
+  value: string | undefined,
+  notificationUpdatedAt: string,
+): boolean | undefined => {
   if (value === undefined) {
     return undefined;
   }
   const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp >= Date.parse(boundary) : undefined;
+  const notificationTimestamp = Date.parse(notificationUpdatedAt);
+  if (!Number.isFinite(timestamp) || !Number.isFinite(notificationTimestamp)) {
+    return undefined;
+  }
+  return (
+    timestamp >= notificationTimestamp - notificationActivityLookbackMilliseconds &&
+    timestamp <= notificationTimestamp
+  );
 };
 
 export const getActivitySuppressionReason = async (
   events: unknown[],
-  lastReadAt: string | null,
+  notificationUpdatedAt: string,
   currentUserId: number,
   owner: string,
   loadCommitActorIds: CommitActorLoader,
 ): Promise<SuppressionReason | undefined> => {
-  const activityBoundary = lastReadAt ?? "1970-01-01T00:00:00Z";
   const activities = events.flatMap((event) => getTimelineActivities(event));
   const ignoredMergeKeys = new Set(
     activities.flatMap((activity) => {
       const [actorId] = activity.actorIds;
       if (
+        isWithinNotificationActivityWindow(activity.occurredAt, notificationUpdatedAt) !== true ||
         activity.actorIds.length !== 1 ||
         actorId === undefined ||
         activity.event !== "merged" ||
@@ -392,11 +403,14 @@ export const getActivitySuppressionReason = async (
   let foundIgnoredMerge = false;
   let foundPrCloserWarning = false;
   for (const activity of activities) {
-    const afterLastRead = isAtOrAfter(activity.occurredAt, activityBoundary);
-    if (afterLastRead === false) {
+    const withinNotificationWindow = isWithinNotificationActivityWindow(
+      activity.occurredAt,
+      notificationUpdatedAt,
+    );
+    if (withinNotificationWindow === false) {
       continue;
     }
-    if (afterLastRead === undefined) {
+    if (withinNotificationWindow === undefined) {
       return undefined;
     }
 
@@ -499,7 +513,7 @@ const getMergeKey = (actorId: number, occurredAt: string): string => {
 const loadActivitySuppressionReason = async (
   octokit: Octokit,
   coordinates: PullRequestCoordinates,
-  lastReadAt: string | null,
+  notificationUpdatedAt: string,
   currentUserId: number,
 ): Promise<SuppressionReason | undefined> => {
   const { owner, pullNumber, repo } = coordinates;
@@ -511,7 +525,7 @@ const loadActivitySuppressionReason = async (
   });
   return await getActivitySuppressionReason(
     events,
-    lastReadAt,
+    notificationUpdatedAt,
     currentUserId,
     owner,
     async (sha) => {
@@ -574,8 +588,13 @@ const suppressionRulesByPriority: SuppressionRule[] = [
     },
   },
   {
-    evaluate: async ({ coordinates, currentUserId, lastReadAt, octokit }) => {
-      return await loadActivitySuppressionReason(octokit, coordinates, lastReadAt, currentUserId);
+    evaluate: async ({ coordinates, currentUserId, notificationUpdatedAt, octokit }) => {
+      return await loadActivitySuppressionReason(
+        octokit,
+        coordinates,
+        notificationUpdatedAt,
+        currentUserId,
+      );
     },
   },
 ];
@@ -752,7 +771,7 @@ const triageNotification = async (
     const suppressionReason = await getSuppressionReason({
       coordinates,
       currentUserId,
-      lastReadAt: currentNotification.lastReadAt,
+      notificationUpdatedAt: currentNotification.updatedAt,
       octokit,
       pullRequest,
     });
