@@ -372,7 +372,7 @@ export const getActivitySuppressionReason = async (
 ): Promise<SuppressionReason | undefined> => {
   const activityBoundary = lastReadAt ?? "1970-01-01T00:00:00Z";
   const activities = events.flatMap((event) => getTimelineActivities(event));
-  const ignoredMergeTimestamps = new Set(
+  const ignoredMergeKeys = new Set(
     activities.flatMap((activity) => {
       const [actorId] = activity.actorIds;
       if (
@@ -384,7 +384,7 @@ export const getActivitySuppressionReason = async (
       ) {
         return [];
       }
-      return [activity.occurredAt];
+      return [getMergeKey(actorId, activity.occurredAt)];
     }),
   );
   let foundIgnoredBotReview = false;
@@ -414,13 +414,15 @@ export const getActivitySuppressionReason = async (
       if (actorIds.length !== 1 || actorId === undefined) {
         return undefined;
       }
-      const ignoredActivityKind = getIgnoredActivityKind(
-        activity,
-        actorId,
-        currentUserId,
-        owner,
-        activity.occurredAt !== undefined && ignoredMergeTimestamps.has(activity.occurredAt),
-      );
+      let ignoredActivityKind = getIgnoredActivityKind(activity, actorId, currentUserId, owner);
+      if (
+        activity.event === "closed" &&
+        activity.occurredAt !== undefined &&
+        isIgnoredMerger(owner, actorId) &&
+        ignoredMergeKeys.has(getMergeKey(actorId, activity.occurredAt))
+      ) {
+        ignoredActivityKind = "ignored_merge";
+      }
       if (ignoredActivityKind === undefined) {
         return undefined;
       }
@@ -459,7 +461,6 @@ const getIgnoredActivityKind = (
   actorId: number,
   currentUserId: number,
   owner: string,
-  hasMatchingIgnoredMerge: boolean,
 ): IgnoredActivityKind | undefined => {
   if (actorId === currentUserId) {
     return "current_user";
@@ -473,10 +474,7 @@ const getIgnoredActivityKind = (
   if (ignoredBotIds.has(actorId) && activity.event === "cross-referenced") {
     return "ignored_bot_reference";
   }
-  if (
-    isIgnoredMerger(owner, actorId) &&
-    (activity.event === "merged" || (activity.event === "closed" && hasMatchingIgnoredMerge))
-  ) {
+  if (isIgnoredMerger(owner, actorId) && activity.event === "merged") {
     return "ignored_merge";
   }
   if (
@@ -492,6 +490,10 @@ const getIgnoredActivityKind = (
 
 const isIgnoredMerger = (owner: string, actorId: number): boolean => {
   return ignoredMergerIdsByOwner.get(owner)?.has(actorId) === true;
+};
+
+const getMergeKey = (actorId: number, occurredAt: string): string => {
+  return JSON.stringify([actorId, occurredAt]);
 };
 
 const loadActivitySuppressionReason = async (
