@@ -7,11 +7,14 @@ import {
 } from "../src/triage";
 
 const aiReviewerId = 136_622_811;
+const brewTestBotId = 1_589_480;
 const cloudflareWorkersAndPagesBotId = 73_139_402;
 const currentUserId = 79_110_363;
 const githubActionsBotId = 41_898_282;
 const humanId = 1;
+const jdxUserId = 216_188;
 const lastReadAt = "2026-08-04T00:00:00Z";
+const miseEnDevBotId = 123_107_610;
 
 const comment = (
   actorId: number,
@@ -36,6 +39,12 @@ const commit = (committedAt: string): unknown => ({
   committer: { date: committedAt },
   event: "committed",
   sha: "abc123",
+});
+
+const timelineEvent = (event: string, actorId: number, createdAt: string): unknown => ({
+  actor: { id: actorId },
+  created_at: createdAt,
+  event,
 });
 
 const noCommitActors = async (): Promise<number[]> => [];
@@ -132,8 +141,8 @@ describe("open pull request suppression by author", () => {
   });
 });
 
-describe("AI review notification suppression", () => {
-  test("suppresses an AI-only comment after the thread was read", async () => {
+describe("bot review notification suppression", () => {
+  test("suppresses a configured-bot-only comment after the thread was read", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(aiReviewerId, "2026-08-04T00:01:00Z")],
       lastReadAt,
@@ -143,7 +152,7 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(true);
   });
 
-  test("ignores activity by risu729 around an AI review", async () => {
+  test("ignores activity by risu729 around a bot review", async () => {
     const result = await hasOnlyIgnoredActivities(
       [
         comment(currentUserId, "2026-08-04T00:01:00Z"),
@@ -173,7 +182,7 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(true);
   });
 
-  test("ignores a cross-reference from an AI reviewer around an AI review", async () => {
+  test("ignores a cross-reference from a configured bot around a bot review", async () => {
     const result = await hasOnlyIgnoredActivities(
       [
         {
@@ -190,7 +199,7 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(true);
   });
 
-  test("does not suppress an AI reviewer cross-reference by itself", async () => {
+  test("does not suppress a configured bot cross-reference by itself", async () => {
     const result = await hasOnlyIgnoredActivities(
       [
         {
@@ -205,6 +214,50 @@ describe("AI review notification suppression", () => {
 
     expect(result).toBe(false);
   });
+
+  test.each([miseEnDevBotId, brewTestBotId])(
+    "suppresses comments from configured bot %s",
+    async (actorId) => {
+      const reason = await classifyActivities(
+        [comment(actorId, "2026-08-04T00:01:00Z")],
+        lastReadAt,
+        currentUserId,
+        "owner",
+        noCommitActors,
+      );
+
+      expect(reason).toBe("ignored_bot_review");
+    },
+  );
+
+  test.each([miseEnDevBotId, brewTestBotId])(
+    "ignores cross-references from configured bot %s around a bot review",
+    async (actorId) => {
+      const result = await hasOnlyIgnoredActivities(
+        [
+          timelineEvent("cross-referenced", actorId, "2026-08-04T00:01:00Z"),
+          review(aiReviewerId, "2026-08-04T00:02:00Z"),
+        ],
+        lastReadAt,
+        noCommitActors,
+      );
+
+      expect(result).toBe(true);
+    },
+  );
+
+  test.each([miseEnDevBotId, brewTestBotId])(
+    "does not suppress configured bot %s cross-references by themselves",
+    async (actorId) => {
+      const result = await hasOnlyIgnoredActivities(
+        [timelineEvent("cross-referenced", actorId, "2026-08-04T00:01:00Z")],
+        lastReadAt,
+        noCommitActors,
+      );
+
+      expect(result).toBe(false);
+    },
+  );
 
   test("retains a cross-reference from another actor", async () => {
     const result = await hasOnlyIgnoredActivities(
@@ -223,7 +276,7 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(false);
   });
 
-  test("retains a human comment immediately before an AI review", async () => {
+  test("retains a human comment immediately before a bot review", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(humanId, "2026-08-04T00:01:00Z"), review(aiReviewerId, "2026-08-04T00:02:00Z")],
       lastReadAt,
@@ -297,7 +350,7 @@ describe("AI review notification suppression", () => {
   });
 
   test.each(["renamed", "labeled", "ready_for_review", "future-event"])(
-    "ignores attributable current-user %s activity around an AI review",
+    "ignores attributable current-user %s activity around a bot review",
     async (event) => {
       const result = await hasOnlyIgnoredActivities(
         [
@@ -333,7 +386,74 @@ describe("AI review notification suppression", () => {
     expect(result).toBe(false);
   });
 
-  test("requires at least one ignored AI comment or review", async () => {
+  test("suppresses a jdx merge and its paired close with supporting bot activity", async () => {
+    const mergedAt = "2026-08-04T00:02:00Z";
+    const reason = await classifyActivities(
+      [
+        timelineEvent("ready_for_review", currentUserId, "2026-08-04T00:01:30Z"),
+        timelineEvent("merged", jdxUserId, mergedAt),
+        timelineEvent("closed", jdxUserId, mergedAt),
+        timelineEvent("cross-referenced", miseEnDevBotId, "2026-08-04T00:03:00Z"),
+        timelineEvent("cross-referenced", brewTestBotId, "2026-08-04T00:04:00Z"),
+      ],
+      lastReadAt,
+      currentUserId,
+      "jdx",
+      noCommitActors,
+    );
+
+    expect(reason).toBe("merged_by_ignored_merger");
+  });
+
+  test("retains a jdx close without a matching merge", async () => {
+    const reason = await classifyActivities(
+      [
+        review(aiReviewerId, "2026-08-04T00:01:00Z"),
+        timelineEvent("closed", jdxUserId, "2026-08-04T00:02:00Z"),
+      ],
+      lastReadAt,
+      currentUserId,
+      "jdx",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
+  });
+
+  test("retains a jdx close whose merge has a different timestamp", async () => {
+    const reason = await classifyActivities(
+      [
+        review(aiReviewerId, "2026-08-04T00:01:00Z"),
+        timelineEvent("merged", jdxUserId, "2026-08-04T00:02:00Z"),
+        timelineEvent("closed", jdxUserId, "2026-08-04T00:03:00Z"),
+      ],
+      lastReadAt,
+      currentUserId,
+      "jdx",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
+  });
+
+  test("retains the same merge pair outside jdx", async () => {
+    const mergedAt = "2026-08-04T00:02:00Z";
+    const reason = await classifyActivities(
+      [
+        review(aiReviewerId, "2026-08-04T00:01:00Z"),
+        timelineEvent("merged", jdxUserId, mergedAt),
+        timelineEvent("closed", jdxUserId, mergedAt),
+      ],
+      lastReadAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
+  });
+
+  test("requires at least one ignored bot comment or review", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(currentUserId, "2026-08-04T00:01:00Z")],
       lastReadAt,
@@ -450,7 +570,7 @@ head_sha: abc123
     expect(reason).toBe("pr_closer_warning");
   });
 
-  test("prioritizes a PR closer warning over an AI review", async () => {
+  test("prioritizes a PR closer warning over a bot review", async () => {
     const reason = await classifyJdxActivities([
       comment(aiReviewerId, "2026-08-04T00:01:00Z"),
       comment(githubActionsBotId, "2026-08-04T00:02:00Z", undefined, warningBody),

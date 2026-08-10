@@ -46,9 +46,11 @@ A notification is marked done when any of these rules match:
   is a `github-actions[bot]` PR auto-close warning in a `jdx/*` repository; or
 - every attributable post-read activity is otherwise ignorable and at least one
   is a comment from `cloudflare-workers-and-pages[bot]`; or
+- every attributable post-read activity is otherwise ignorable and at least one
+  is a merge by `jdx` in a `jdx/*` repository; or
 - every attributable timeline event at or after the notification's `last_read_at`
-  timestamp is from `risu729`, CodeRabbit, Greptile, or Sourcery, and at least
-  one of those events is an AI comment or review.
+  timestamp is from the authenticated user or a configured bot, and at least
+  one of those events is a configured bot comment or review.
 
 Release pull request suppression relies only on the head branch name. Titles,
 labels, and authors vary across the supported repositories and are not checked.
@@ -59,7 +61,7 @@ authenticated user's ID. Closed pull requests and pull requests with an unknown
 author are retained by this rule.
 
 The actor checks use immutable GitHub IDs. The current user ID is retrieved from
-the authenticated `GH_TOKEN`; the automation and AI reviewer IDs are fixed.
+the authenticated `GH_TOKEN`; the automation and bot IDs are fixed.
 With no read timestamp, the entire timeline is checked. Any timestamped event
 attributed to the authenticated user is ignored. An unattributable event or
 activity from anyone else retains the notification unless explicitly allowed.
@@ -67,10 +69,14 @@ The thread is fetched again immediately before it is marked done to reduce the
 chance of hiding a concurrent update. GitHub does not provide a conditional
 mark-done operation, so a narrow race remains between those two requests.
 
-Comments and reviews by CodeRabbit, Greptile, and Sourcery trigger AI-review
-suppression. Cross-references by those bots are ignored as supporting activity
-but do not trigger suppression by themselves. Commits must be attributable to
-the authenticated user; other timeline activity retains the notification.
+Comments and reviews by CodeRabbit, Greptile, Sourcery, `mise-en-dev`, and
+`BrewTestBot` trigger bot-review suppression. Cross-references by those bots are
+ignored as supporting activity but do not trigger suppression by themselves.
+Commits must be attributable to the authenticated user; other timeline activity
+retains the notification.
+
+In `jdx/*`, a merge by `jdx` and a close by `jdx` with the exact same timestamp
+are ignored as a pair. A close without that matching merge remains blocking.
 
 Cloudflare deployment comments are recognized by the immutable
 `cloudflare-workers-and-pages[bot]` ID. Other actors and non-comment events,
@@ -81,7 +87,7 @@ emitted by `jdx/pr-closer` and the immutable `github-actions[bot]` ID. The
 unmarked auto-close comment and the subsequent `closed` event are retained.
 
 Renovate pull requests without GitHub auto-merge, such as major updates that
-need manual review, are only suppressed by the stricter AI-review rule. Marking
+need manual review, are only suppressed by the stricter bot-review rule. Marking
 a notification as done does not modify its pull request.
 
 ## Setup
