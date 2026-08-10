@@ -13,7 +13,7 @@ const currentUserId = 79_110_363;
 const githubActionsBotId = 41_898_282;
 const humanId = 1;
 const jdxUserId = 216_188;
-const lastReadAt = "2026-08-04T00:00:00Z";
+const notificationUpdatedAt = "2026-08-04T00:05:00Z";
 const miseEnDevBotId = 123_107_610;
 
 const comment = (
@@ -50,12 +50,12 @@ const timelineEvent = (event: string, actorId: number, createdAt: string): unkno
 const noCommitActors = async (): Promise<number[]> => [];
 const hasOnlyIgnoredActivities = async (
   events: unknown[],
-  lastReadAt: string | null,
+  notificationUpdatedAt: string,
   loadCommitActorIds: (sha: string) => Promise<number[] | undefined>,
 ): Promise<boolean> => {
   const reason = await classifyActivities(
     events,
-    lastReadAt,
+    notificationUpdatedAt,
     currentUserId,
     "owner",
     loadCommitActorIds,
@@ -142,10 +142,10 @@ describe("open pull request suppression by author", () => {
 });
 
 describe("bot review notification suppression", () => {
-  test("suppresses a configured-bot-only comment after the thread was read", async () => {
+  test("suppresses a configured-bot-only comment within the notification window", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(aiReviewerId, "2026-08-04T00:01:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -158,7 +158,7 @@ describe("bot review notification suppression", () => {
         comment(currentUserId, "2026-08-04T00:01:00Z"),
         review(aiReviewerId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -175,7 +175,7 @@ describe("bot review notification suppression", () => {
         },
         review(aiReviewerId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -192,7 +192,7 @@ describe("bot review notification suppression", () => {
         },
         review(aiReviewerId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -208,7 +208,7 @@ describe("bot review notification suppression", () => {
           event: "cross-referenced",
         },
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -220,7 +220,7 @@ describe("bot review notification suppression", () => {
     async (actorId) => {
       const reason = await classifyActivities(
         [comment(actorId, "2026-08-04T00:01:00Z")],
-        lastReadAt,
+        notificationUpdatedAt,
         currentUserId,
         "owner",
         noCommitActors,
@@ -238,7 +238,7 @@ describe("bot review notification suppression", () => {
           timelineEvent("cross-referenced", actorId, "2026-08-04T00:01:00Z"),
           review(aiReviewerId, "2026-08-04T00:02:00Z"),
         ],
-        lastReadAt,
+        notificationUpdatedAt,
         noCommitActors,
       );
 
@@ -251,7 +251,7 @@ describe("bot review notification suppression", () => {
     async (actorId) => {
       const result = await hasOnlyIgnoredActivities(
         [timelineEvent("cross-referenced", actorId, "2026-08-04T00:01:00Z")],
-        lastReadAt,
+        notificationUpdatedAt,
         noCommitActors,
       );
 
@@ -269,7 +269,7 @@ describe("bot review notification suppression", () => {
         },
         review(aiReviewerId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -279,7 +279,7 @@ describe("bot review notification suppression", () => {
   test("retains a human comment immediately before a bot review", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(humanId, "2026-08-04T00:01:00Z"), review(aiReviewerId, "2026-08-04T00:02:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -292,27 +292,27 @@ describe("bot review notification suppression", () => {
         comment(humanId, "2026-08-03T23:59:00Z", "2026-08-04T00:01:00Z"),
         review(aiReviewerId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
     expect(result).toBe(false);
   });
 
-  test("retains a human event with the same timestamp as the read boundary", async () => {
+  test("retains a human event at the notification timestamp", async () => {
     const result = await hasOnlyIgnoredActivities(
-      [comment(humanId, lastReadAt), review(aiReviewerId, "2026-08-04T00:01:00Z")],
-      lastReadAt,
+      [comment(humanId, notificationUpdatedAt), review(aiReviewerId, "2026-08-04T00:01:00Z")],
+      notificationUpdatedAt,
       noCommitActors,
     );
 
     expect(result).toBe(false);
   });
 
-  test("ignores human comments that were already read", async () => {
+  test("ignores human comments older than the notification window", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(humanId, "2026-08-03T23:59:00Z"), review(aiReviewerId, "2026-08-04T00:01:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -322,7 +322,7 @@ describe("bot review notification suppression", () => {
   test("allows a commit attributable to risu729", async () => {
     const result = await hasOnlyIgnoredActivities(
       [commit("2026-08-04T00:01:00Z"), review(aiReviewerId, "2026-08-04T00:02:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       async () => [currentUserId],
     );
 
@@ -332,7 +332,7 @@ describe("bot review notification suppression", () => {
   test("retains a commit not attributable to risu729", async () => {
     const result = await hasOnlyIgnoredActivities(
       [commit("2026-08-04T00:01:00Z"), review(aiReviewerId, "2026-08-04T00:02:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       async () => [humanId],
     );
 
@@ -342,7 +342,7 @@ describe("bot review notification suppression", () => {
   test("retains a commit that can no longer be fetched", async () => {
     const result = await hasOnlyIgnoredActivities(
       [commit("2026-08-04T00:01:00Z"), review(aiReviewerId, "2026-08-04T00:02:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       async () => undefined,
     );
 
@@ -361,7 +361,7 @@ describe("bot review notification suppression", () => {
           },
           review(aiReviewerId, "2026-08-04T00:02:00Z"),
         ],
-        lastReadAt,
+        notificationUpdatedAt,
         noCommitActors,
       );
 
@@ -379,7 +379,7 @@ describe("bot review notification suppression", () => {
         },
         review(aiReviewerId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
@@ -396,7 +396,7 @@ describe("bot review notification suppression", () => {
         timelineEvent("cross-referenced", miseEnDevBotId, "2026-08-04T00:03:00Z"),
         timelineEvent("cross-referenced", brewTestBotId, "2026-08-04T00:04:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "jdx",
       noCommitActors,
@@ -411,7 +411,7 @@ describe("bot review notification suppression", () => {
         review(aiReviewerId, "2026-08-04T00:01:00Z"),
         timelineEvent("closed", jdxUserId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "jdx",
       noCommitActors,
@@ -427,7 +427,7 @@ describe("bot review notification suppression", () => {
         timelineEvent("merged", jdxUserId, "2026-08-04T00:02:00Z"),
         timelineEvent("closed", jdxUserId, "2026-08-04T00:03:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "jdx",
       noCommitActors,
@@ -444,7 +444,7 @@ describe("bot review notification suppression", () => {
         timelineEvent("merged", jdxUserId, mergedAt),
         timelineEvent("closed", jdxUserId, mergedAt),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "owner",
       noCommitActors,
@@ -456,27 +456,27 @@ describe("bot review notification suppression", () => {
   test("requires at least one ignored bot comment or review", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(currentUserId, "2026-08-04T00:01:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       noCommitActors,
     );
 
     expect(result).toBe(false);
   });
 
-  test("checks the full timeline when a thread has never been read", async () => {
+  test("ignores activity newer than the notification", async () => {
     const result = await hasOnlyIgnoredActivities(
-      [review(aiReviewerId, "2026-08-04T00:01:00Z")],
-      null,
+      [review(aiReviewerId, "2026-08-04T00:04:00Z"), comment(humanId, "2026-08-04T00:06:00Z")],
+      notificationUpdatedAt,
       noCommitActors,
     );
 
     expect(result).toBe(true);
   });
 
-  test("retains any human activity when a thread has never been read", async () => {
+  test("retains activity when the notification timestamp is invalid", async () => {
     const result = await hasOnlyIgnoredActivities(
-      [comment(humanId, "2026-08-03T23:59:00Z"), review(aiReviewerId, "2026-08-04T00:01:00Z")],
-      null,
+      [review(aiReviewerId, "2026-08-04T00:01:00Z")],
+      "invalid",
       noCommitActors,
     );
 
@@ -488,7 +488,7 @@ describe("Cloudflare deployment notification suppression", () => {
   test("suppresses a Cloudflare Workers and Pages comment", async () => {
     const reason = await classifyActivities(
       [comment(cloudflareWorkersAndPagesBotId, "2026-08-04T00:01:00Z")],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "owner",
       noCommitActors,
@@ -503,7 +503,7 @@ describe("Cloudflare deployment notification suppression", () => {
         comment(currentUserId, "2026-08-04T00:01:00Z"),
         comment(cloudflareWorkersAndPagesBotId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "owner",
       noCommitActors,
@@ -522,7 +522,7 @@ describe("Cloudflare deployment notification suppression", () => {
           event: "merged",
         },
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "owner",
       noCommitActors,
@@ -537,7 +537,7 @@ describe("Cloudflare deployment notification suppression", () => {
         comment(humanId, "2026-08-04T00:01:00Z"),
         comment(cloudflareWorkersAndPagesBotId, "2026-08-04T00:02:00Z"),
       ],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "owner",
       noCommitActors,
@@ -559,7 +559,13 @@ head_sha: abc123
 *This comment was generated by an automated workflow.*`;
 
   const classifyJdxActivities = async (events: unknown[]): Promise<string | undefined> => {
-    return await classifyActivities(events, lastReadAt, currentUserId, "jdx", noCommitActors);
+    return await classifyActivities(
+      events,
+      notificationUpdatedAt,
+      currentUserId,
+      "jdx",
+      noCommitActors,
+    );
   };
 
   test("suppresses a marked warning from GitHub Actions", async () => {
@@ -582,7 +588,7 @@ head_sha: abc123
   test("retains the same marked warning outside jdx", async () => {
     const reason = await classifyActivities(
       [comment(githubActionsBotId, "2026-08-04T00:01:00Z", undefined, warningBody)],
-      lastReadAt,
+      notificationUpdatedAt,
       currentUserId,
       "risu729",
       noCommitActors,
