@@ -49,7 +49,8 @@ A notification is marked done when any of these rules match:
 - every attributable activity in the notification window is otherwise ignorable
   and at least one is a comment from `cloudflare-workers-and-pages[bot]`; or
 - every attributable activity in the notification window is otherwise ignorable
-  and at least one is a merge by `jdx` in a `jdx/*` repository; or
+  and at least one is a merge by `jdx` of the authenticated user's pull request
+  in a `jdx/*` repository; or
 - every attributable activity in the notification window is from the
   authenticated user or a configured bot, and at least one is a configured bot
   comment or review.
@@ -81,7 +82,9 @@ Commits must be attributable to the authenticated user; other timeline activity
 retains the notification.
 
 In `jdx/*`, a merge by `jdx` and a close by `jdx` with the exact same timestamp
-are ignored as a pair. A close without that matching merge remains blocking.
+are ignored as a pair only when the pull request was authored by the
+authenticated user. Pull requests by other authors and closes without that
+matching merge remain blocking.
 
 Cloudflare deployment comments are recognized by the immutable
 `cloudflare-workers-and-pages[bot]` ID. Other actors and non-comment events,
