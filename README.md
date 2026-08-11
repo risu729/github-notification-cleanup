@@ -37,7 +37,8 @@ partial scan.
 
 A notification is marked done when any of these rules match:
 
-- its pull request was opened by Renovate and has GitHub auto-merge enabled; or
+- its pull request was opened by Renovate and either has GitHub auto-merge
+  enabled or was merged by Renovate; or
 - its head branch begins with `release` in any `jdx/*` or `risu729/*`
   repository; or
 - its pull request is open in `jdx/*` and was authored by someone other than
@@ -90,9 +91,11 @@ PR auto-close warnings are recognized by the `<!-- pr-closer-warning` marker
 emitted by `jdx/pr-closer` and the immutable `github-actions[bot]` ID. The
 unmarked auto-close comment and the subsequent `closed` event are retained.
 
-Renovate pull requests without GitHub auto-merge, such as major updates that
-need manual review, are only suppressed by the stricter bot-review rule. Marking
-a notification as done does not modify its pull request.
+Open Renovate pull requests without GitHub auto-merge, such as major updates
+that need manual review, are only suppressed by the stricter bot-review rule.
+Merged Renovate pull requests are suppressed only when Renovate itself performed
+the merge; manually merged or merely closed Renovate pull requests are retained.
+Marking a notification as done does not modify its pull request.
 
 ## Setup
 

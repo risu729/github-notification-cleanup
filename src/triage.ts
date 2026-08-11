@@ -51,7 +51,10 @@ type SuppressionReason =
   | "open_pull_request_by_other_author"
   | "pr_closer_warning"
   | "release_pull_request"
-  | "renovate_auto_merge";
+  | "renovate_auto_merge"
+  | "renovate_merged";
+
+const renovateSuppressionReasons = new Set<string>(["renovate_auto_merge", "renovate_merged"]);
 
 type IgnoredActivityKind =
   | "cloudflare_deployment_comment"
@@ -217,6 +220,19 @@ export const createEmptySummary = (): Summary => {
 export const isReleasePullRequest = ({ headRef, owner }: ReleasePullRequest): boolean => {
   const isSuppressedOwner = owner === "jdx" || owner === "risu729";
   return isSuppressedOwner && headRef.startsWith("release");
+};
+
+const getRenovateSuppressionReason = (pullRequest: PullRequest): SuppressionReason | undefined => {
+  if (pullRequest.user?.id !== renovateBotId) {
+    return undefined;
+  }
+  if (pullRequest.auto_merge !== null) {
+    return "renovate_auto_merge";
+  }
+  if (pullRequest.merged_by?.id === renovateBotId) {
+    return "renovate_merged";
+  }
+  return undefined;
 };
 
 export const isOpenPullRequestByOtherAuthor = ({
@@ -554,12 +570,7 @@ const loadActivitySuppressionReason = async (
 
 const suppressionRulesByPriority: SuppressionRule[] = [
   {
-    evaluate: ({ pullRequest }) => {
-      if (pullRequest.user?.id === renovateBotId && pullRequest.auto_merge !== null) {
-        return "renovate_auto_merge";
-      }
-      return undefined;
-    },
+    evaluate: ({ pullRequest }) => getRenovateSuppressionReason(pullRequest),
   },
   {
     evaluate: ({ coordinates, pullRequest }) => {
@@ -877,7 +888,7 @@ export const triageNotifications = async ({
       if (audit.outcome === "marked_done") {
         summary.evaluated += 1;
         summary.markedDone += 1;
-        if (audit.reason === "renovate_auto_merge") {
+        if (renovateSuppressionReasons.has(audit.reason)) {
           summary.renovateMarkedDone += 1;
         } else if (audit.reason === "release_pull_request") {
           summary.releaseMarkedDone += 1;
