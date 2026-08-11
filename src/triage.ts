@@ -229,7 +229,7 @@ const getRenovateSuppressionReason = (pullRequest: PullRequest): SuppressionReas
   if (pullRequest.auto_merge !== null) {
     return "renovate_auto_merge";
   }
-  if (pullRequest.merged_by?.id === renovateBotId) {
+  if (pullRequest.merged_at !== null) {
     return "renovate_merged";
   }
   return undefined;
