@@ -627,10 +627,13 @@ describe("notification Queue consumer", () => {
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ mergeMarkedDone: 1 });
   });
 
-  test("retains the same merge pair outside jdx", async () => {
+  test.each([
+    { authorId: 79_110_363, name: "outside jdx", owner: "owner" },
+    { authorId: 1, name: "for another author's jdx PR", owner: "jdx" },
+  ])("retains the same merge pair $name", async ({ authorId, owner }) => {
     const mergeNotification: Notification = {
       ...notification("1", 11_550),
-      subjectUrl: "https://api.github.com/repos/owner/mise/pulls/11550",
+      subjectUrl: `https://api.github.com/repos/${owner}/mise/pulls/11550`,
     };
     const mergeThread = {
       ...thread("1", 11_550),
@@ -651,16 +654,16 @@ describe("notification Queue consumer", () => {
       if (pathname === "/notifications/threads/1" && method === "GET") {
         return response(mergeThread);
       }
-      if (pathname === "/repos/owner/mise/pulls/11550") {
+      if (pathname === `/repos/${owner}/mise/pulls/11550`) {
         return response(
           pullRequest(11_550, {
-            html_url: "https://github.com/owner/mise/pull/11550",
+            html_url: `https://github.com/${owner}/mise/pull/11550`,
             state: "closed",
-            user: { id: 79_110_363 },
+            user: { id: authorId },
           }),
         );
       }
-      if (pathname === "/repos/owner/mise/issues/11550/timeline") {
+      if (pathname === `/repos/${owner}/mise/issues/11550/timeline`) {
         return response([
           {
             actor: { id: 216_188 },

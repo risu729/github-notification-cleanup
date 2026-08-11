@@ -599,13 +599,23 @@ const suppressionRulesByPriority: SuppressionRule[] = [
     },
   },
   {
-    evaluate: async ({ coordinates, currentUserId, notificationUpdatedAt, octokit }) => {
-      return await loadActivitySuppressionReason(
+    evaluate: async ({
+      coordinates,
+      currentUserId,
+      notificationUpdatedAt,
+      octokit,
+      pullRequest,
+    }) => {
+      const reason = await loadActivitySuppressionReason(
         octokit,
         coordinates,
         notificationUpdatedAt,
         currentUserId,
       );
+      if (reason === "merged_by_ignored_merger" && pullRequest.user?.id !== currentUserId) {
+        return undefined;
+      }
+      return reason;
     },
   },
 ];
