@@ -62,6 +62,7 @@ const pullRequest = (
   auto_merge: null,
   head: { ref: `pull-${pullNumber}` },
   html_url: `https://github.com/owner/repo/pull/${pullNumber}`,
+  merged_at: null,
   title: `Pull request ${pullNumber}`,
   user: { id: 1 },
   ...overrides,
@@ -284,7 +285,10 @@ describe("notification Queue consumer", () => {
     expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_auto_merge" });
   });
 
-  test("marks a Renovate-authored and -merged notification done", async () => {
+  test.each([
+    { mergedBy: { id: 29_139_614 }, name: "by Renovate" },
+    { mergedBy: { id: 79_110_363 }, name: "manually" },
+  ])("marks a Renovate-authored notification merged $name done", async ({ mergedBy }) => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
@@ -299,7 +303,8 @@ describe("notification Queue consumer", () => {
       if (pathname === "/repos/owner/repo/pulls/1") {
         return response(
           pullRequest(1, {
-            merged_by: { id: 29_139_614 },
+            merged_at: "2026-08-04T00:01:00Z",
+            merged_by: mergedBy,
             state: "closed",
             user: { id: 29_139_614 },
           }),
@@ -327,10 +332,7 @@ describe("notification Queue consumer", () => {
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ renovateMarkedDone: 1 });
   });
 
-  test.each([
-    { mergedBy: { id: 79_110_363 }, name: "manually merged" },
-    { mergedBy: null, name: "closed without merge" },
-  ])("retains a Renovate-authored pull request that was $name", async ({ mergedBy }) => {
+  test("retains a Renovate-authored pull request closed without merge", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
@@ -345,7 +347,8 @@ describe("notification Queue consumer", () => {
       if (pathname === "/repos/owner/repo/pulls/1") {
         return response(
           pullRequest(1, {
-            merged_by: mergedBy,
+            merged_at: null,
+            merged_by: null,
             state: "closed",
             user: { id: 29_139_614 },
           }),
