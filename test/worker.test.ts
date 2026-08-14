@@ -159,6 +159,30 @@ describe("notification discovery", () => {
     });
   });
 
+  test("overlaps the checkpoint to enqueue late GitHub notifications", async () => {
+    const previousCheckpoint = "2026-08-04T00:10:00Z";
+    await env.DB.prepare("UPDATE cleanup_state SET last_checked_at = ? WHERE singleton = 1")
+      .bind(previousCheckpoint)
+      .run();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href,
+      );
+      expect(url.searchParams.get("since")).toBe("2026-08-04T00:00:00.000Z");
+      return response([apiNotification("1", 1)]);
+    });
+    const sendBatch = vi.spyOn(env.NOTIFICATION_QUEUE, "sendBatch").mockResolvedValue({
+      metadata: { metrics: { backlogBytes: 0, backlogCount: 0 } },
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await discoverAndEnqueueNotifications(env);
+
+    expect(sendBatch).toHaveBeenCalledWith([{ body: notification("1", 1), contentType: "json" }]);
+    const [run] = await loadRuns();
+    expect(run?.since).toBe("2026-08-04T00:00:00.000Z");
+  });
+
   test("migrates due D1 retries into the Queue", async () => {
     await env.DB.prepare(
       `
