@@ -19,6 +19,14 @@ type DiscoveryOptions = {
 };
 
 const queueBatchSize = 100;
+const notificationDiscoveryOverlapMilliseconds = 10 * 60 * 1_000;
+
+const getDiscoverySince = (checkpoint: string | undefined): string | undefined => {
+  if (checkpoint === undefined) {
+    return undefined;
+  }
+  return new Date(Date.parse(checkpoint) - notificationDiscoveryOverlapMilliseconds).toISOString();
+};
 
 const enqueueNotifications = async (
   queue: Queue<Notification>,
@@ -41,7 +49,7 @@ export const discoverAndEnqueueNotifications = async (
   try {
     const state = await loadCleanupState(env.DB);
     fullScan ||= state.fullScanRequested;
-    since = fullScan ? undefined : state.lastCheckedAt;
+    since = fullScan ? undefined : getDiscoverySince(state.lastCheckedAt);
     const retries = await loadPendingRetries(env.DB, startedAt);
     const result = await discoverNotifications({
       fullScan,
