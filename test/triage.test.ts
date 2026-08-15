@@ -9,6 +9,7 @@ import {
 const aiReviewerId = 136_622_811;
 const brewTestBotId = 1_589_480;
 const cloudflareWorkersAndPagesBotId = 73_139_402;
+const codecovBotId = 22_429_695;
 const currentUserId = 79_110_363;
 const githubActionsBotId = 41_898_282;
 const humanId = 1;
@@ -215,7 +216,7 @@ describe("bot review notification suppression", () => {
     expect(result).toBe(false);
   });
 
-  test.each([miseEnDevBotId, brewTestBotId])(
+  test.each([miseEnDevBotId, brewTestBotId, codecovBotId])(
     "suppresses comments from configured bot %s",
     async (actorId) => {
       const reason = await classifyActivities(
@@ -230,7 +231,7 @@ describe("bot review notification suppression", () => {
     },
   );
 
-  test.each([miseEnDevBotId, brewTestBotId])(
+  test.each([miseEnDevBotId, brewTestBotId, codecovBotId])(
     "ignores cross-references from configured bot %s around a bot review",
     async (actorId) => {
       const result = await hasOnlyIgnoredActivities(
@@ -246,7 +247,7 @@ describe("bot review notification suppression", () => {
     },
   );
 
-  test.each([miseEnDevBotId, brewTestBotId])(
+  test.each([miseEnDevBotId, brewTestBotId, codecovBotId])(
     "does not suppress configured bot %s cross-references by themselves",
     async (actorId) => {
       const result = await hasOnlyIgnoredActivities(

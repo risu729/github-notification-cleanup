@@ -77,11 +77,11 @@ fetched again immediately before it is marked done to reduce the chance of
 hiding a concurrent update. GitHub does not provide a conditional mark-done
 operation, so a narrow race remains between those two requests.
 
-Comments and reviews by CodeRabbit, Greptile, Sourcery, `mise-en-dev`, and
-`BrewTestBot` trigger bot-review suppression. Cross-references by those bots are
-ignored as supporting activity but do not trigger suppression by themselves.
-Commits must be attributable to the authenticated user; other timeline activity
-retains the notification.
+Comments and reviews by CodeRabbit, Codecov, Greptile, Sourcery,
+`mise-en-dev`, and `BrewTestBot` trigger bot-review suppression.
+Cross-references by those bots are ignored as supporting activity but do not
+trigger suppression by themselves. Commits must be attributable to the
+authenticated user; other timeline activity retains the notification.
 
 In `jdx/*`, a merge by `jdx` and a close by `jdx` with the exact same timestamp
 are ignored as a pair only when the pull request was authored by the
