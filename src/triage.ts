@@ -5,6 +5,7 @@ const apiOrigin = "https://api.github.com";
 const brewTestBotId = 1_589_480;
 const cloudflareWorkersAndPagesBotId = 73_139_402;
 const codeRabbitBotId = 136_622_811;
+const codecovBotId = 22_429_695;
 const githubActionsBotId = 41_898_282;
 const greptileBotId = 165_735_046;
 const jdxUserId = 216_188;
@@ -14,6 +15,7 @@ const sourceryBotId = 58_596_630;
 const ignoredBotIds = new Set([
   brewTestBotId,
   codeRabbitBotId,
+  codecovBotId,
   greptileBotId,
   miseEnDevBotId,
   sourceryBotId,
