@@ -12,6 +12,6 @@
     "@cloudflare/vitest-pool-workers": "0.21.1",
     "@risu729/tsconfigs": "3.0.0",
     "vitest": "4.1.10",
-    "wrangler": "4.120.1"
+    "wrangler": "4.121.0"
   }
 }
