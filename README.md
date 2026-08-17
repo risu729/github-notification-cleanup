@@ -31,10 +31,8 @@ for another Queue delivery.
 
 The checkpoint is only an optimization: a missing or invalid value causes the
 Worker to safely inspect all read and unread notifications. Incremental scans
-start 10 minutes before the previous checkpoint so notifications that appear
-late in GitHub's API are still discovered even when their `updated_at` value is
-older than the checkpoint. The D1 state also reserves a queued full-check flag
-for a future control UI. Once requested, it remains queued after a systemic
+start at the previous checkpoint. The D1 state also reserves a queued full-check
+flag for a future control UI. Once requested, it remains queued after a systemic
 failure and is consumed after a successful or partial scan.
 
 A notification is marked done when any of these rules match:
