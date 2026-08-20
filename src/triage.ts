@@ -5,13 +5,21 @@ const apiOrigin = "https://api.github.com";
 const brewTestBotId = 1_589_480;
 const cloudflareWorkersAndPagesBotId = 73_139_402;
 const codeRabbitBotId = 136_622_811;
+const codeRabbitCommandTargetId = 132_028_505;
 const codecovBotId = 22_429_695;
 const githubActionsBotId = 41_898_282;
 const greptileBotId = 165_735_046;
+const greptileCommandTargetId = 140_149_887;
 const jdxUserId = 216_188;
 const miseEnDevBotId = 123_107_610;
 const prCloserWarningMarker = "<!-- pr-closer-warning\n";
 const sourceryBotId = 58_596_630;
+const sourceryCommandTargetId = 36_609_879;
+const ignoredAutomationMentionIds = new Set([
+  codeRabbitCommandTargetId,
+  greptileCommandTargetId,
+  sourceryCommandTargetId,
+]);
 const ignoredBotIds = new Set([
   brewTestBotId,
   codeRabbitBotId,
@@ -62,6 +70,7 @@ const renovateSuppressionReasons = new Set<string>(["renovate_auto_merge", "reno
 type IgnoredActivityKind =
   | "cloudflare_deployment_comment"
   | "current_user"
+  | "ignored_automation_mention"
   | "ignored_bot_review"
   | "ignored_bot_reference"
   | "ignored_merge"
@@ -513,6 +522,9 @@ const getIgnoredActivityKind = (
   }
   if (ignoredBotIds.has(actorId) && activity.event === "cross-referenced") {
     return "ignored_bot_reference";
+  }
+  if (ignoredAutomationMentionIds.has(actorId) && activity.event === "mentioned") {
+    return "ignored_automation_mention";
   }
   if (isIgnoredMerger(owner, actorId) && activity.event === "merged") {
     return "ignored_merge";

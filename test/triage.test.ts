@@ -9,13 +9,18 @@ import {
 const aiReviewerId = 136_622_811;
 const brewTestBotId = 1_589_480;
 const cloudflareWorkersAndPagesBotId = 73_139_402;
+const codeRabbitCommandTargetId = 132_028_505;
 const codecovBotId = 22_429_695;
 const currentUserId = 79_110_363;
+const greptileBotId = 165_735_046;
+const greptileCommandTargetId = 140_149_887;
 const githubActionsBotId = 41_898_282;
 const humanId = 1;
 const jdxUserId = 216_188;
 const notificationUpdatedAt = "2026-08-04T00:05:00Z";
 const miseEnDevBotId = 123_107_610;
+const sourceryBotId = 58_596_630;
+const sourceryCommandTargetId = 36_609_879;
 
 const comment = (
   actorId: number,
@@ -214,6 +219,72 @@ describe("bot review notification suppression", () => {
     );
 
     expect(result).toBe(false);
+  });
+
+  test.each([
+    {
+      commandTargetId: codeRabbitCommandTargetId,
+      name: "CodeRabbit",
+      responseBotId: aiReviewerId,
+    },
+    {
+      commandTargetId: greptileCommandTargetId,
+      name: "Greptile",
+      responseBotId: greptileBotId,
+    },
+    {
+      commandTargetId: sourceryCommandTargetId,
+      name: "Sourcery",
+      responseBotId: sourceryBotId,
+    },
+  ])(
+    "ignores a $name command mention around its bot response",
+    async ({ commandTargetId, responseBotId }) => {
+      const reason = await classifyActivities(
+        [
+          comment(currentUserId, "2026-08-04T00:00:30Z"),
+          timelineEvent("mentioned", commandTargetId, "2026-08-04T00:01:00Z"),
+          comment(responseBotId, "2026-08-04T00:02:00Z"),
+        ],
+        notificationUpdatedAt,
+        currentUserId,
+        "owner",
+        noCommitActors,
+      );
+
+      expect(reason).toBe("ignored_bot_review");
+    },
+  );
+
+  test.each([
+    { commandTargetId: codeRabbitCommandTargetId, name: "CodeRabbit" },
+    { commandTargetId: greptileCommandTargetId, name: "Greptile" },
+    { commandTargetId: sourceryCommandTargetId, name: "Sourcery" },
+  ])("does not suppress a $name command mention by itself", async ({ commandTargetId }) => {
+    const reason = await classifyActivities(
+      [timelineEvent("mentioned", commandTargetId, "2026-08-04T00:01:00Z")],
+      notificationUpdatedAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
+  });
+
+  test("retains an unknown mention around a configured bot response", async () => {
+    const reason = await classifyActivities(
+      [
+        timelineEvent("mentioned", humanId, "2026-08-04T00:01:00Z"),
+        comment(aiReviewerId, "2026-08-04T00:02:00Z"),
+      ],
+      notificationUpdatedAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
   });
 
   test.each([miseEnDevBotId, brewTestBotId, codecovBotId])(
