@@ -49,6 +49,7 @@ type OpenPullRequest = {
 type SuppressionReason =
   | "cloudflare_deployment_comment"
   | "ignored_bot_review"
+  | "merged_by_current_user"
   | "merged_by_ignored_merger"
   | "open_pull_request_by_other_author"
   | "pr_closer_warning"
@@ -418,6 +419,7 @@ export const getActivitySuppressionReason = async (
   );
   let foundIgnoredBotReview = false;
   let foundCloudflareDeploymentComment = false;
+  let foundCurrentUserMerge = false;
   let foundIgnoredMerge = false;
   let foundPrCloserWarning = false;
   for (const activity of activities) {
@@ -461,6 +463,9 @@ export const getActivitySuppressionReason = async (
       if (ignoredActivityKind === "ignored_bot_review") {
         foundIgnoredBotReview = true;
       }
+      if (ignoredActivityKind === "current_user" && activity.event === "merged") {
+        foundCurrentUserMerge = true;
+      }
       if (ignoredActivityKind === "ignored_merge" && activity.event === "merged") {
         foundIgnoredMerge = true;
       }
@@ -478,6 +483,9 @@ export const getActivitySuppressionReason = async (
   }
   if (foundCloudflareDeploymentComment) {
     return "cloudflare_deployment_comment";
+  }
+  if (foundCurrentUserMerge) {
+    return "merged_by_current_user";
   }
   if (foundIgnoredMerge) {
     return "merged_by_ignored_merger";
@@ -910,7 +918,10 @@ export const triageNotifications = async ({
           summary.prCloserWarningMarkedDone += 1;
         } else if (audit.reason === "cloudflare_deployment_comment") {
           summary.cloudflareDeploymentMarkedDone += 1;
-        } else if (audit.reason === "merged_by_ignored_merger") {
+        } else if (
+          audit.reason === "merged_by_current_user" ||
+          audit.reason === "merged_by_ignored_merger"
+        ) {
           summary.mergeMarkedDone += 1;
         } else {
           summary.botReviewMarkedDone += 1;

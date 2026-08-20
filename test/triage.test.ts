@@ -387,6 +387,39 @@ describe("bot review notification suppression", () => {
     expect(result).toBe(false);
   });
 
+  test("suppresses a merge by the authenticated user with supporting self activity", async () => {
+    const mergedAt = "2026-08-04T00:02:00Z";
+    const reason = await classifyActivities(
+      [
+        timelineEvent("auto_squash_enabled", currentUserId, "2026-08-04T00:01:00Z"),
+        timelineEvent("merged", currentUserId, mergedAt),
+        timelineEvent("closed", currentUserId, mergedAt),
+        timelineEvent("head_ref_deleted", currentUserId, "2026-08-04T00:02:01Z"),
+      ],
+      notificationUpdatedAt,
+      currentUserId,
+      "risu729",
+      noCommitActors,
+    );
+
+    expect(reason).toBe("merged_by_current_user");
+  });
+
+  test("retains a current-user merge with concurrent human activity", async () => {
+    const reason = await classifyActivities(
+      [
+        timelineEvent("merged", currentUserId, "2026-08-04T00:02:00Z"),
+        comment(humanId, "2026-08-04T00:03:00Z"),
+      ],
+      notificationUpdatedAt,
+      currentUserId,
+      "risu729",
+      noCommitActors,
+    );
+
+    expect(reason).toBeUndefined();
+  });
+
   test("suppresses a jdx merge and its paired close with supporting bot activity", async () => {
     const mergedAt = "2026-08-04T00:02:00Z";
     const reason = await classifyActivities(

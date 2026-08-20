@@ -49,6 +49,8 @@ A notification is marked done when any of these rules match:
 - every attributable activity in the notification window is otherwise ignorable
   and at least one is a comment from `cloudflare-workers-and-pages[bot]`; or
 - every attributable activity in the notification window is otherwise ignorable
+  and at least one is a merge performed by the authenticated user; or
+- every attributable activity in the notification window is otherwise ignorable
   and at least one is a merge by `jdx` of the authenticated user's pull request
   in a `jdx/*` repository; or
 - every attributable activity in the notification window is from the
@@ -70,10 +72,12 @@ The notification window covers the five minutes ending at the notification's
 after its causal event and keeps read notifications classifiable. Activity
 outside that window is ignored. Within the window, activity attributed to the
 authenticated user is ignored, while unattributable activity or activity from
-anyone else retains the notification unless explicitly allowed. The thread is
-fetched again immediately before it is marked done to reduce the chance of
-hiding a concurrent update. GitHub does not provide a conditional mark-done
-operation, so a narrow race remains between those two requests.
+anyone else retains the notification unless explicitly allowed. A merge by the
+authenticated user also triggers suppression after the full window passes these
+checks. The thread is fetched again immediately before it is marked done to
+reduce the chance of hiding a concurrent update. GitHub does not provide a
+conditional mark-done operation, so a narrow race remains between those two
+requests.
 
 Comments and reviews by CodeRabbit, Codecov, Greptile, Sourcery,
 `mise-en-dev`, and `BrewTestBot` trigger bot-review suppression.
