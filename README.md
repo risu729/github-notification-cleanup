@@ -82,8 +82,12 @@ requests.
 Comments and reviews by CodeRabbit, Codecov, Greptile, Sourcery,
 `mise-en-dev`, and `BrewTestBot` trigger bot-review suppression.
 Cross-references by those bots are ignored as supporting activity but do not
-trigger suppression by themselves. Commits must be attributable to the
-authenticated user; other timeline activity retains the notification.
+trigger suppression by themselves. Mentions of the CodeRabbit, Greptile, and
+Sourcery command identities are also ignored as supporting activity so their
+comment-driven commands do not block the bot response from triggering
+suppression. A command mention does not trigger suppression by itself. Commits
+must be attributable to the authenticated user; other timeline activity retains
+the notification.
 
 In `jdx/*`, a merge by `jdx` and a close by `jdx` with the exact same timestamp
 are ignored as a pair only when the pull request was authored by the

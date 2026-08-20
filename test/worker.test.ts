@@ -732,6 +732,81 @@ describe("notification Queue consumer", () => {
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ mergeMarkedDone: 1 });
   });
 
+  test("ignores an automation command mention around its bot response", async () => {
+    const botNotification: Notification = {
+      ...notification("1", 11_720),
+      subjectUrl: "https://api.github.com/repos/jdx/mise/pulls/11720",
+    };
+    const botThread = {
+      ...thread("1", 11_720),
+      subject: {
+        type: "PullRequest",
+        url: botNotification.subjectUrl,
+      },
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      const pathname = new URL(url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1" && method === "GET") {
+        return response(botThread);
+      }
+      if (pathname === "/repos/jdx/mise/pulls/11720") {
+        return response(
+          pullRequest(11_720, {
+            html_url: "https://github.com/jdx/mise/pull/11720",
+            state: "open",
+            user: { id: 79_110_363 },
+          }),
+        );
+      }
+      if (pathname === "/repos/jdx/mise/issues/11720/timeline") {
+        return response([
+          {
+            actor: { id: 79_110_363 },
+            body: "@coderabbitai resume",
+            created_at: "2026-08-04T00:00:30Z",
+            event: "commented",
+          },
+          {
+            actor: { id: 132_028_505 },
+            created_at: "2026-08-04T00:01:00Z",
+            event: "mentioned",
+          },
+          {
+            actor: { id: 136_622_811 },
+            body: "Reviews resumed.",
+            created_at: "2026-08-04T00:01:10Z",
+            event: "commented",
+          },
+        ]);
+      }
+      if (pathname === "/notifications/threads/1" && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const batch = queueBatch([botNotification]);
+    const context = createExecutionContext();
+
+    await worker.queue(batch, env);
+
+    const queueResult = await getQueueResult(batch, context);
+    expect(queueResult.explicitAcks).toEqual(["message-0"]);
+    expect(queueResult.retryMessages).toEqual([]);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual({ outcome: "marked_done", reason: "ignored_bot_review" });
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ botReviewMarkedDone: 1 });
+  });
+
   test.each([
     { authorId: 79_110_363, name: "outside jdx", owner: "owner" },
     { authorId: 1, name: "for another author's jdx PR", owner: "jdx" },
