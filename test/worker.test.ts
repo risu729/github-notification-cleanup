@@ -28,6 +28,9 @@ const notification = (id: string, pullNumber: number): Notification => ({
   attemptCount: 0,
   id,
   lastReadAt: "2026-08-03T00:00:00Z",
+  repository: "owner/repo",
+  subjectTitle: `Pull request ${pullNumber}`,
+  subjectType: "PullRequest",
   subjectUrl: `https://api.github.com/repos/owner/repo/pulls/${pullNumber}`,
   unread: false,
   updatedAt: "2026-08-04T00:02:00Z",
@@ -36,23 +39,69 @@ const notification = (id: string, pullNumber: number): Notification => ({
 const apiNotification = (id: string, pullNumber: number): Record<string, unknown> => ({
   id,
   last_read_at: "2026-08-03T00:00:00Z",
+  reason: "subscribed",
+  repository: { full_name: "owner/repo" },
   subject: {
+    title: `Pull request ${pullNumber}`,
     type: "PullRequest",
     url: `https://api.github.com/repos/owner/repo/pulls/${pullNumber}`,
   },
   unread: false,
   updated_at: "2026-08-04T00:02:00Z",
+  url: `https://api.github.com/notifications/threads/${id}`,
 });
 
 const thread = (id: string, pullNumber: number): Record<string, unknown> => ({
   id,
   last_read_at: "2026-08-03T00:00:00Z",
+  repository: { full_name: "owner/repo" },
   subject: {
+    title: `Pull request ${pullNumber}`,
     type: "PullRequest",
     url: `https://api.github.com/repos/owner/repo/pulls/${pullNumber}`,
   },
   unread: false,
   updated_at: "2026-08-04T00:02:00Z",
+  url: `https://api.github.com/notifications/threads/${id}`,
+});
+
+const workflowNotification = (id = "1", updatedAt = "2026-08-04T00:02:20Z"): Notification => ({
+  attemptCount: 0,
+  id,
+  lastReadAt: "2026-08-04T00:02:20Z",
+  repository: "owner/repo",
+  subjectTitle: "test workflow run failed for feature branch",
+  subjectType: "CheckSuite",
+  subjectUrl: `https://api.github.com/notifications/threads/${id}`,
+  unread: true,
+  updatedAt,
+});
+
+const workflowThread = (notification: Notification): Record<string, unknown> => ({
+  id: notification.id,
+  last_read_at: notification.lastReadAt,
+  repository: { full_name: notification.repository },
+  subject: {
+    title: notification.subjectTitle,
+    type: "CheckSuite",
+    url: null,
+  },
+  unread: notification.unread,
+  updated_at: notification.updatedAt,
+  url: notification.subjectUrl,
+});
+
+const workflowRun = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  conclusion: "failure",
+  created_at: "2026-08-04T00:00:00Z",
+  head_branch: "feature",
+  head_sha: "old-sha",
+  id: 100,
+  name: "test",
+  run_attempt: 1,
+  updated_at: "2026-08-04T00:02:00Z",
+  workflow_id: 10,
+  ...overrides,
 });
 
 const pullRequest = (
@@ -156,6 +205,39 @@ describe("notification discovery", () => {
       retried: 0,
       retryExhausted: 0,
       retryPending: 0,
+      staleWorkflowRunsMarkedDone: 0,
+      workflowRuns: 0,
+    });
+  });
+
+  test("enqueues Actions check suite notifications", async () => {
+    const candidate = workflowNotification();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      response([
+        {
+          id: candidate.id,
+          last_read_at: candidate.lastReadAt,
+          reason: "ci_activity",
+          repository: { full_name: candidate.repository },
+          subject: { title: candidate.subjectTitle, type: "CheckSuite", url: null },
+          unread: candidate.unread,
+          updated_at: candidate.updatedAt,
+          url: candidate.subjectUrl,
+        },
+      ]),
+    );
+    const sendBatch = vi.spyOn(env.NOTIFICATION_QUEUE, "sendBatch").mockResolvedValue({
+      metadata: { metrics: { backlogBytes: 0, backlogCount: 0 } },
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await discoverAndEnqueueNotifications(env);
+
+    expect(sendBatch).toHaveBeenCalledWith([{ body: candidate, contentType: "json" }]);
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      pullRequests: 0,
+      workflowRuns: 1,
     });
   });
 
@@ -219,7 +301,12 @@ describe("notification discovery", () => {
 
     expect(sendBatch).toHaveBeenCalledWith([
       {
-        body: { ...notification("1", 1), attemptCount: 7 },
+        body: {
+          ...notification("1", 1),
+          attemptCount: 7,
+          repository: "",
+          subjectTitle: "",
+        },
         contentType: "json",
       },
     ]);
@@ -1101,6 +1188,109 @@ describe("notification Queue consumer", () => {
       markedDone: 0,
       openPullRequestMarkedDone: 0,
       retained: 4,
+    });
+  });
+
+  test.each([
+    {
+      attempts: {},
+      expectedOutcome: "marked_done",
+      expectedReason: "stale_workflow_run",
+      name: "a newer run with a different commit",
+      runs: [
+        workflowRun(),
+        workflowRun({
+          conclusion: "success",
+          created_at: "2026-08-04T00:03:00Z",
+          head_sha: "new-sha",
+          id: 101,
+          updated_at: "2026-08-04T00:05:00Z",
+        }),
+      ],
+    },
+    {
+      attempts: { "100/1": workflowRun() },
+      expectedOutcome: "marked_done",
+      expectedReason: "stale_workflow_run",
+      name: "a later rerun of the same commit",
+      runs: [
+        workflowRun({
+          conclusion: "success",
+          head_sha: "old-sha",
+          run_attempt: 2,
+          updated_at: "2026-08-04T00:05:00Z",
+        }),
+      ],
+    },
+    {
+      attempts: {},
+      expectedOutcome: "retained",
+      expectedReason: "workflow_run_current_or_ambiguous",
+      name: "no superseding run",
+      runs: [workflowRun()],
+    },
+    {
+      attempts: {},
+      expectedOutcome: "retained",
+      expectedReason: "workflow_run_current_or_ambiguous",
+      name: "more than one plausible run",
+      runs: [
+        workflowRun(),
+        workflowRun({
+          created_at: "2026-08-04T00:01:00Z",
+          id: 101,
+          updated_at: "2026-08-04T00:02:10Z",
+        }),
+      ],
+    },
+  ])("classifies an Actions notification with $name", async (testCase) => {
+    const candidate = workflowNotification();
+    let markedDone = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === `/notifications/threads/${candidate.id}`) {
+        if (request.method === "DELETE") {
+          markedDone = true;
+          return new Response(null, { status: 204 });
+        }
+        return response(workflowThread(candidate));
+      }
+      if (pathname === "/repos/owner/repo/actions/runs") {
+        return response({ total_count: testCase.runs.length, workflow_runs: testCase.runs });
+      }
+      const attemptMatch = /^\/repos\/owner\/repo\/actions\/runs\/(\d+)\/attempts\/(\d+)$/.exec(
+        pathname,
+      );
+      if (attemptMatch !== null) {
+        const attempts = testCase.attempts as Record<string, Record<string, unknown>>;
+        const attempt = attempts[`${attemptMatch[1] ?? ""}/${attemptMatch[2] ?? ""}`];
+        return attempt === undefined
+          ? response({ message: "unexpected workflow attempt" }, 500)
+          : response(attempt);
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const batch = queueBatch([candidate]);
+
+    await worker.queue(batch, env);
+
+    expect(markedDone).toBe(testCase.expectedOutcome === "marked_done");
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual({
+      outcome: testCase.expectedOutcome,
+      reason: testCase.expectedReason,
+    });
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      staleWorkflowRunsMarkedDone: testCase.expectedOutcome === "marked_done" ? 1 : 0,
+      workflowRuns: 1,
     });
   });
 

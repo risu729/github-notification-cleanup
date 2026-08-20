@@ -15,6 +15,9 @@ type RetryRow = {
   last_read_at: string | null;
   notification_id: string;
   notification_updated_at: string;
+  repository: string | null;
+  subject_title: string;
+  subject_type: "CheckSuite" | "PullRequest";
   subject_url: string;
   unread: number;
 };
@@ -72,6 +75,8 @@ const prepareAuditInsert = (
           run_id,
           notification_id,
           subject_url,
+          subject_type,
+          subject_title,
           repository,
           pull_number,
           outcome,
@@ -84,13 +89,15 @@ const prepareAuditInsert = (
           retry_after,
           rate_limit_remaining,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
     .bind(
       runId,
       audit.notification.id,
       audit.notification.subjectUrl,
+      audit.notification.subjectType,
+      audit.notification.subjectTitle,
       audit.repository ?? null,
       audit.pullNumber ?? null,
       audit.outcome,
@@ -135,6 +142,9 @@ export const loadPendingRetries = async (
         SELECT
           notification_id,
           subject_url,
+          subject_type,
+          subject_title,
+          repository,
           notification_updated_at,
           last_read_at,
           unread,
@@ -152,6 +162,9 @@ export const loadPendingRetries = async (
     attemptCount: row.attempt_count,
     id: row.notification_id,
     lastReadAt: row.last_read_at,
+    repository: row.repository ?? "",
+    subjectTitle: row.subject_title,
+    subjectType: row.subject_type,
     subjectUrl: row.subject_url,
     unread: row.unread === 1,
     updatedAt: row.notification_updated_at,

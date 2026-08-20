@@ -31,6 +31,7 @@ const ignoredBotIds = new Set([
 const ignoredMergerIdsByOwner = new Map([["jdx", new Set([jdxUserId])]]);
 const ignoredOpenPullRequestOwners = new Set(["jdx"]);
 const notificationActivityLookbackMilliseconds = 5 * 60 * 1_000;
+const workflowRunNotificationMatchWindowMilliseconds = 5 * 60 * 1_000;
 const maxGitHubRequestsPerNotification = 15;
 const renovateBotId = 29_139_614;
 
@@ -46,6 +47,9 @@ type ReleasePullRequest = {
 };
 
 type PullRequest = Awaited<ReturnType<Octokit["rest"]["pulls"]["get"]>>["data"];
+type WorkflowRun = Awaited<
+  ReturnType<Octokit["rest"]["actions"]["listWorkflowRunsForRepo"]>
+>["data"]["workflow_runs"][number];
 
 type OpenPullRequest = {
   authorId: number | undefined;
@@ -63,7 +67,8 @@ type SuppressionReason =
   | "pr_closer_warning"
   | "release_pull_request"
   | "renovate_auto_merge"
-  | "renovate_merged";
+  | "renovate_merged"
+  | "stale_workflow_run";
 
 const renovateSuppressionReasons = new Set<string>(["renovate_auto_merge", "renovate_merged"]);
 
@@ -106,12 +111,17 @@ export type Summary = {
   retried: number;
   retryExhausted: number;
   retryPending: number;
+  staleWorkflowRunsMarkedDone: number;
+  workflowRuns: number;
 };
 
 export type Notification = {
   attemptCount: number;
   id: string;
   lastReadAt: string | null;
+  repository: string;
+  subjectTitle: string;
+  subjectType: "CheckSuite" | "PullRequest";
   subjectUrl: string;
   unread: boolean;
   updatedAt: string;
@@ -226,6 +236,8 @@ export const createEmptySummary = (): Summary => {
     retried: 0,
     retryExhausted: 0,
     retryPending: 0,
+    staleWorkflowRunsMarkedDone: 0,
+    workflowRuns: 0,
   };
 };
 
@@ -733,6 +745,108 @@ export const getRetryDelaySeconds = (attempts: number, retryAfter?: string): num
   return Math.min(10 * 60 * 2 ** Math.max(attempts - 1, 0), 6 * 60 * 60);
 };
 
+const workflowNotificationConclusion = (conclusion: string | null): string | undefined => {
+  if (conclusion === "failure") {
+    return "failed";
+  }
+  if (conclusion === "cancelled") {
+    return "cancelled";
+  }
+  return undefined;
+};
+
+const getWorkflowNotificationTitle = (
+  run: Pick<WorkflowRun, "conclusion" | "head_branch" | "name">,
+): string | undefined => {
+  const conclusion = workflowNotificationConclusion(run.conclusion);
+  if (conclusion === undefined || run.head_branch === null || run.name === null) {
+    return undefined;
+  }
+  return `${run.name} workflow run ${conclusion} for ${run.head_branch} branch`;
+};
+
+const couldMatchWorkflowNotificationTitle = (
+  run: Pick<WorkflowRun, "head_branch" | "name">,
+  title: string,
+): boolean => {
+  if (run.head_branch === null || run.name === null) {
+    return false;
+  }
+  return ["failed", "cancelled"].some(
+    (conclusion) =>
+      title === `${run.name} workflow run ${conclusion} for ${run.head_branch} branch`,
+  );
+};
+
+const isWorkflowRunNotificationCandidate = (
+  run: WorkflowRun,
+  notification: Notification,
+): boolean => {
+  if (getWorkflowNotificationTitle(run) !== notification.subjectTitle) {
+    return false;
+  }
+  const runUpdatedAt = Date.parse(run.updated_at);
+  const notificationUpdatedAt = Date.parse(notification.updatedAt);
+  return (
+    Number.isFinite(runUpdatedAt) &&
+    Number.isFinite(notificationUpdatedAt) &&
+    runUpdatedAt <= notificationUpdatedAt &&
+    notificationUpdatedAt - runUpdatedAt <= workflowRunNotificationMatchWindowMilliseconds
+  );
+};
+
+const getStaleWorkflowRunSuppressionReason = async (
+  notification: Notification,
+  octokit: Octokit,
+): Promise<SuppressionReason | undefined> => {
+  const [owner, repo, extra] = notification.repository.split("/");
+  if (owner === undefined || repo === undefined || extra !== undefined) {
+    return undefined;
+  }
+  const { data } = await octokit.rest.actions.listWorkflowRunsForRepo({
+    owner,
+    per_page: 100,
+    repo,
+  });
+  const runs = data.workflow_runs;
+  const attempts: WorkflowRun[] = [...runs];
+  for (const run of runs) {
+    const runAttempt = run.run_attempt ?? 1;
+    if (runAttempt <= 1 || !couldMatchWorkflowNotificationTitle(run, notification.subjectTitle)) {
+      continue;
+    }
+    for (let attemptNumber = 1; attemptNumber < runAttempt; attemptNumber += 1) {
+      const { data: attempt } = await octokit.rest.actions.getWorkflowRunAttempt({
+        attempt_number: attemptNumber,
+        owner,
+        repo,
+        run_id: run.id,
+      });
+      attempts.push(attempt);
+    }
+  }
+  const candidates = attempts.filter((run) =>
+    isWorkflowRunNotificationCandidate(run, notification),
+  );
+  if (candidates.length !== 1) {
+    return undefined;
+  }
+  const [candidate] = candidates;
+  if (candidate === undefined) {
+    return undefined;
+  }
+  const superseded = runs.some((run) => {
+    if (run.workflow_id !== candidate.workflow_id || run.head_branch !== candidate.head_branch) {
+      return false;
+    }
+    if (run.id === candidate.id) {
+      return (run.run_attempt ?? 1) > (candidate.run_attempt ?? 1);
+    }
+    return Date.parse(run.created_at) > Date.parse(candidate.created_at);
+  });
+  return superseded ? "stale_workflow_run" : undefined;
+};
+
 export const discoverNotifications = async ({
   fullScan,
   retries,
@@ -759,19 +873,31 @@ export const discoverNotifications = async ({
     candidates.set(notification.id, notification);
   }
   for (const notification of notifications) {
-    if (notification.subject.type !== "PullRequest" || notification.subject.url === null) {
+    const isPullRequest =
+      notification.subject.type === "PullRequest" && notification.subject.url !== null;
+    const isWorkflowRun =
+      notification.reason === "ci_activity" && notification.subject.type === "CheckSuite";
+    if (!isPullRequest && !isWorkflowRun) {
       continue;
     }
     candidates.set(notification.id, {
       attemptCount: retryById.get(notification.id)?.attemptCount ?? 0,
       id: notification.id,
       lastReadAt: notification.last_read_at,
-      subjectUrl: notification.subject.url,
+      repository: notification.repository.full_name,
+      subjectTitle: notification.subject.title,
+      subjectType: isPullRequest ? "PullRequest" : "CheckSuite",
+      subjectUrl: notification.subject.url ?? notification.url,
       unread: notification.unread,
       updatedAt: notification.updated_at,
     });
   }
-  summary.pullRequests = candidates.size;
+  summary.pullRequests = [...candidates.values()].filter(
+    (notification) => notification.subjectType === "PullRequest",
+  ).length;
+  summary.workflowRuns = [...candidates.values()].filter(
+    (notification) => notification.subjectType === "CheckSuite",
+  ).length;
   return { notifications: [...candidates.values()], startedAt, summary };
 };
 
@@ -782,49 +908,72 @@ const triageNotification = async (
 ): Promise<NotificationAudit> => {
   let currentNotification = notification;
   let coordinates: PullRequestCoordinates | undefined;
+  let repository = notification.repository;
   try {
     const octokit = createGitHub(token, maxGitHubRequestsPerNotification);
     const threadId = parseThreadId(currentNotification.id);
     const { data: initialThread } = await octokit.rest.activity.getThread({
       thread_id: threadId,
     });
-    if (initialThread.subject.type !== "PullRequest" || initialThread.subject.url === null) {
+    const isPullRequest =
+      initialThread.subject.type === "PullRequest" && initialThread.subject.url !== null;
+    const isWorkflowRun = initialThread.subject.type === "CheckSuite";
+    if (!isPullRequest && !isWorkflowRun) {
       return {
         notification: currentNotification,
         outcome: "retained",
-        reason: "no_longer_pull_request",
+        reason:
+          currentNotification.subjectType === "PullRequest"
+            ? "no_longer_pull_request"
+            : "no_longer_supported_subject",
       };
     }
+    repository = initialThread.repository?.full_name ?? repository;
     currentNotification = {
       ...currentNotification,
       lastReadAt: initialThread.last_read_at,
-      subjectUrl: initialThread.subject.url,
+      repository,
+      subjectTitle: initialThread.subject.title ?? currentNotification.subjectTitle,
+      subjectType: isPullRequest ? "PullRequest" : "CheckSuite",
+      subjectUrl: initialThread.subject.url ?? initialThread.url ?? currentNotification.subjectUrl,
       unread: initialThread.unread,
       updatedAt: initialThread.updated_at,
     };
 
-    coordinates = parsePullRequestUrl(currentNotification.subjectUrl);
-    const { owner, pullNumber, repo } = coordinates;
-    const { data: pullRequest } = await octokit.rest.pulls.get({
-      owner,
-      pull_number: pullNumber,
-      repo,
-    });
-
-    const suppressionReason = await getSuppressionReason({
-      coordinates,
-      currentUserId,
-      notificationUpdatedAt: currentNotification.updatedAt,
-      octokit,
-      pullRequest,
-    });
+    let suppressionReason: SuppressionReason | undefined;
+    let pullNumber: number | undefined;
+    let pullRequestUrl: string | undefined;
+    if (currentNotification.subjectType === "PullRequest") {
+      coordinates = parsePullRequestUrl(currentNotification.subjectUrl);
+      const { owner, repo } = coordinates;
+      pullNumber = coordinates.pullNumber;
+      repository = `${owner}/${repo}`;
+      const { data: pullRequest } = await octokit.rest.pulls.get({
+        owner,
+        pull_number: pullNumber,
+        repo,
+      });
+      pullRequestUrl = pullRequest.html_url;
+      suppressionReason = await getSuppressionReason({
+        coordinates,
+        currentUserId,
+        notificationUpdatedAt: currentNotification.updatedAt,
+        octokit,
+        pullRequest,
+      });
+    } else {
+      suppressionReason = await getStaleWorkflowRunSuppressionReason(currentNotification, octokit);
+    }
     if (suppressionReason === undefined) {
       return {
         notification: currentNotification,
         outcome: "retained",
-        pullNumber,
-        reason: "requires_attention",
-        repository: `${owner}/${repo}`,
+        ...(pullNumber === undefined ? {} : { pullNumber }),
+        reason:
+          currentNotification.subjectType === "CheckSuite"
+            ? "workflow_run_current_or_ambiguous"
+            : "requires_attention",
+        repository,
       };
     }
 
@@ -838,14 +987,14 @@ const triageNotification = async (
     ) {
       console.warn({
         event: "notification_concurrently_updated",
-        pullRequestUrl: pullRequest.html_url,
+        subjectUrl: pullRequestUrl ?? currentNotification.subjectUrl,
       });
       return {
         notification: currentNotification,
         outcome: "retained",
-        pullNumber,
+        ...(pullNumber === undefined ? {} : { pullNumber }),
         reason: "concurrently_updated",
-        repository: `${owner}/${repo}`,
+        repository,
       };
     }
 
@@ -854,15 +1003,15 @@ const triageNotification = async (
     });
     console.log({
       event: "notification_marked_done",
-      pullRequestUrl: pullRequest.html_url,
+      subjectUrl: pullRequestUrl ?? currentNotification.subjectUrl,
       reason: suppressionReason,
     });
     return {
       notification: currentNotification,
       outcome: "marked_done",
-      pullNumber,
+      ...(pullNumber === undefined ? {} : { pullNumber }),
       reason: suppressionReason,
-      repository: `${owner}/${repo}`,
+      repository,
     };
   } catch (error) {
     if (error instanceof RequestBudgetExceeded) {
@@ -871,7 +1020,7 @@ const triageNotification = async (
         outcome: "retained",
         reason: "evaluation_budget_exceeded",
         ...(coordinates === undefined
-          ? {}
+          ? { repository }
           : {
               pullNumber: coordinates.pullNumber,
               repository: `${coordinates.owner}/${coordinates.repo}`,
@@ -891,7 +1040,7 @@ const triageNotification = async (
       outcome: "retry_pending",
       reason: "evaluation_failed",
       ...(coordinates === undefined
-        ? {}
+        ? { repository }
         : {
             pullNumber: coordinates.pullNumber,
             repository: `${coordinates.owner}/${coordinates.repo}`,
@@ -907,7 +1056,12 @@ export const triageNotifications = async ({
 }: TriageOptions): Promise<TriageResult> => {
   const summary = createEmptySummary();
   summary.notifications = notifications.length;
-  summary.pullRequests = notifications.length;
+  summary.pullRequests = notifications.filter(
+    (notification) => notification.subjectType === "PullRequest",
+  ).length;
+  summary.workflowRuns = notifications.filter(
+    (notification) => notification.subjectType === "CheckSuite",
+  ).length;
   summary.retried = notifications.filter((notification) => notification.attemptCount > 0).length;
   const audits: NotificationAudit[] = [];
 
@@ -935,11 +1089,16 @@ export const triageNotifications = async ({
           audit.reason === "merged_by_ignored_merger"
         ) {
           summary.mergeMarkedDone += 1;
+        } else if (audit.reason === "stale_workflow_run") {
+          summary.staleWorkflowRunsMarkedDone += 1;
         } else {
           summary.botReviewMarkedDone += 1;
         }
       } else if (audit.outcome === "retained") {
-        if (audit.reason !== "no_longer_pull_request") {
+        if (
+          audit.reason !== "no_longer_pull_request" &&
+          audit.reason !== "no_longer_supported_subject"
+        ) {
           summary.evaluated += 1;
         }
         summary.retained += 1;

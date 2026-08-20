@@ -149,7 +149,12 @@ const recordExhaustedBatch = async (batch: MessageBatch<Notification>, env: Env)
   }));
   const summary = createEmptySummary();
   summary.notifications = notifications.length;
-  summary.pullRequests = notifications.length;
+  summary.pullRequests = notifications.filter(
+    (notification) => notification.subjectType === "PullRequest",
+  ).length;
+  summary.workflowRuns = notifications.filter(
+    (notification) => notification.subjectType === "CheckSuite",
+  ).length;
   summary.retained = notifications.length;
   summary.retryExhausted = notifications.length;
   const audits: NotificationAudit[] = notifications.map((notification) => ({
