@@ -1,16 +1,16 @@
 # GitHub Notification Cleanup
 
-Keeps the GitHub notification inbox focused on pull request activity that needs
-human attention.
+Keeps the GitHub notification inbox focused on activity that needs human
+attention.
 
 ## Behavior
 
-A Cloudflare Worker polls GitHub every 10 minutes and publishes pull request
-notifications to a Cloudflare Queue. Queue consumers evaluate at most three
-notifications per invocation with one concurrent consumer. This isolates the
-external requests for each small batch under the Workers Free plan's
-subrequest limit while allowing bursts to drain independently of the polling
-schedule.
+A Cloudflare Worker polls GitHub every 10 minutes and publishes pull request and
+Actions check suite notifications to a Cloudflare Queue. Queue consumers
+evaluate at most three notifications per invocation with one concurrent
+consumer. This isolates the external requests for each small batch under the
+Workers Free plan's subrequest limit while allowing bursts to drain
+independently of the polling schedule.
 
 Each notification has a budget of 15 GitHub requests. An unusually large
 timeline that reaches the budget is retained for manual attention instead of
@@ -22,9 +22,10 @@ Existing D1 retry rows are moved to the Queue as they become due after
 deployment.
 
 The Worker stores its checkpoint, append-only discovery and consumer runs, and
-per-pull-request outcomes in Cloudflare D1. Runs are recorded as successful,
-partial, or failed. Audit rows include the notification ID, repository, pull
-request number, decision, and GitHub error diagnostics when applicable. This
+per-notification outcomes in Cloudflare D1. Runs are recorded as successful,
+partial, or failed. Audit rows include the notification ID, subject type and
+title, repository, pull request number when applicable, decision, and GitHub
+error diagnostics when applicable. This
 history can support a read-only status UI later without depending on sampled
 Worker logs. A partial consumer run means at least one message was scheduled
 for another Queue delivery.
@@ -55,7 +56,18 @@ A notification is marked done when any of these rules match:
   in a `jdx/*` repository; or
 - every attributable activity in the notification window is from the
   authenticated user or a configured bot, and at least one is a configured bot
-  comment or review.
+  comment or review; or
+- an Actions failure or cancellation has been superseded by a newer run of the
+  same workflow and branch, including a later rerun attempt of the same run.
+
+GitHub's notification API does not identify the workflow run behind a check
+suite notification. The Worker therefore reconstructs the exact generated
+title from recent workflow runs and requires the run's completion time to be
+within five minutes before the notification update. It marks the notification
+done only when exactly one failed or cancelled run matches and a later run or
+rerun exists. The commit SHA may stay the same across reruns. Missing history,
+an unrecognized title, or more than one plausible match retains the
+notification.
 
 Release pull request suppression relies only on the head branch name. Titles,
 labels, and authors vary across the supported repositories and are not checked.
