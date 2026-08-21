@@ -9,7 +9,7 @@
     "uuid": "14.0.1"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.21.3",
+    "@cloudflare/vitest-pool-workers": "0.22.0",
     "@risu729/tsconfigs": "3.0.0",
     "vitest": "4.1.11",
     "wrangler": "4.123.0"
