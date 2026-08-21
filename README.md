@@ -5,7 +5,7 @@ attention.
 
 ## Behavior
 
-A Cloudflare Worker polls GitHub every 10 minutes and publishes pull request and
+A Cloudflare Worker polls GitHub every 5 minutes and publishes pull request and
 Actions check suite notifications to a Cloudflare Queue. Queue consumers
 evaluate at most three notifications per invocation with one concurrent
 consumer. This isolates the external requests for each small batch under the

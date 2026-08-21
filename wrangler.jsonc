@@ -51,7 +51,7 @@
     "required": ["GH_TOKEN"],
   },
   "triggers": {
-    "crons": ["*/10 * * * *"],
+    "crons": ["*/5 * * * *"],
   },
   "upload_source_maps": true,
   "vars": {
