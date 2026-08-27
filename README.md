@@ -7,12 +7,10 @@ attention.
 
 A Cloudflare Worker polls GitHub every 5 minutes and publishes pull request and
 Actions check suite notifications to a Cloudflare Queue. Queue consumers
-evaluate at most three notifications per invocation with one concurrent
-consumer. This isolates the external requests for each small batch under the
-Workers Free plan's subrequest limit while allowing bursts to drain
-independently of the polling schedule.
+evaluate at most ten notifications per invocation and scale out automatically,
+so bursts drain independently of the polling schedule.
 
-Each notification has a budget of 15 GitHub requests. An unusually large
+Each notification has a budget of 50 GitHub requests. An unusually large
 timeline that reaches the budget is retained for manual attention instead of
 risking the entire batch. Octokit does not retry inside an invocation. Transient
 GitHub failures retry the individual Queue message with exponential backoff;

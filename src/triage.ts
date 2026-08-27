@@ -32,7 +32,7 @@ const ignoredMergerIdsByOwner = new Map([["jdx", new Set([jdxUserId])]]);
 const ignoredOpenPullRequestOwners = new Set(["jdx"]);
 const notificationActivityLookbackMilliseconds = 5 * 60 * 1_000;
 const workflowRunNotificationMatchWindowMilliseconds = 5 * 60 * 1_000;
-const maxGitHubRequestsPerNotification = 15;
+const maxGitHubRequestsPerNotification = 50;
 const renovateBotId = 29_139_614;
 
 type PullRequestCoordinates = {
