@@ -1400,7 +1400,7 @@ describe("notification Queue consumer", () => {
 
   test("retains an evaluation that reaches its GitHub request budget", async () => {
     const timeline = [
-      ...Array.from({ length: 14 }, (_, index) => ({
+      ...Array.from({ length: 60 }, (_, index) => ({
         committer: { date: `2026-08-04T00:01:${String(index).padStart(2, "0")}Z` },
         event: "committed",
         sha: `commit-${index}`,

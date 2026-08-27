@@ -25,16 +25,14 @@
     "consumers": [
       {
         "dead_letter_queue": "github-notification-cleanup-failures",
-        "max_batch_size": 3,
+        "max_batch_size": 10,
         "max_batch_timeout": 5,
-        "max_concurrency": 1,
         "max_retries": 7,
         "queue": "github-notification-cleanup-notifications",
       },
       {
-        "max_batch_size": 3,
+        "max_batch_size": 10,
         "max_batch_timeout": 5,
-        "max_concurrency": 1,
         "max_retries": 7,
         "queue": "github-notification-cleanup-failures",
         "retry_delay": 600,
