@@ -3,7 +3,7 @@
 
 [tools]
 bun = "1.4.2"
-hk = "1.58.1"
+hk = "2.0.0"
 oxlint = "1.77.0"
 oxfmt = "0.67.0"
 "npm:typescript" = "7.0.2"
