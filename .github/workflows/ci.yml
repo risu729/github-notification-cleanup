@@ -14,7 +14,7 @@ permissions: {}
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read # for checkout
@@ -31,7 +31,7 @@ jobs:
         run: mise run check --lint
   test:
     name: Test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read # for checkout
@@ -48,7 +48,7 @@ jobs:
         run: mise run test
   worker:
     name: Cloudflare Worker
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read # for checkout
@@ -75,7 +75,7 @@ jobs:
       - test
       - worker
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - run: exit 1
@@ -84,7 +84,7 @@ jobs:
     needs:
       - ci-check
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read # for actions-timeline
