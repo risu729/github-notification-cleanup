@@ -11,7 +11,7 @@ export default defineConfig({
         },
       },
       wrangler: {
-        configPath: "./wrangler.jsonc",
+        configPath: "./test/wrangler.jsonc",
       },
     })),
   ],

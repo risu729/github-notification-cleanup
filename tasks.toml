@@ -20,24 +20,34 @@ run = "bun run vitest run"
 description = "Run unit tests."
 
 ["worker:generate-types"]
-run = "bun run wrangler types worker-configuration.d.ts"
+run = "bun run cf workers types --mode production"
 hide = true
 description = "Generate Cloudflare Worker runtime and binding types."
 
 ["worker:migrate"]
 env.CLOUDFLARE_ACCOUNT_ID.required = "Set the Cloudflare account ID"
 env.CLOUDFLARE_API_TOKEN.required = "Set a Cloudflare Workers API token"
-run = "bun run wrangler d1 migrations apply github-notification-cleanup --remote"
+run = "bun run cf d1 migrations apply 1a52ac9d-62e6-40b7-93c8-31ec58e49075 --dir migrations --table d1_migrations"
 description = "Apply pending migrations to the production D1 database."
 
 ["worker:provision"]
 env.CLOUDFLARE_ACCOUNT_ID.required = "Set the Cloudflare account ID"
 env.CLOUDFLARE_API_TOKEN.required = "Set a Cloudflare Workers API token"
 run = '''
+queues="$(bun run cf queues list)"
+jq --exit-status 'type == "array" and all(.[]; .queue_name | type == "string")' <<<"$queues" >/dev/null
 for queue in github-notification-cleanup-notifications github-notification-cleanup-failures; do
-  if ! bun run wrangler queues list | grep --fixed-strings --quiet "$queue"; then
-    bun run wrangler queues create "$queue"
+  if ! jq --exit-status --arg name "$queue" 'any(.[]; .queue_name == $name)' <<<"$queues" >/dev/null; then
+    bun run cf queues create --queue-name "$queue"
   fi
 done
 '''
 description = "Create the production notification queues when absent."
+
+["worker:build"]
+run = ["bun run cf build --mode production", "bun scripts/verify-worker-config.mjs"]
+description = "Build the production Worker output for validation and deployment."
+
+["worker:dry-run"]
+run = "bun run cf workers versions create --prebuilt --mode production --worker github-notification-cleanup --dry-run"
+description = "Validate the prebuilt Worker without uploading or changing production."
