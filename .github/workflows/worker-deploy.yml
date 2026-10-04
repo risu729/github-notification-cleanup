@@ -10,8 +10,10 @@ on:
       - "mise.toml"
       - "package.json"
       - "src/**"
+      - "scripts/**"
       - "tasks.toml"
-      - "wrangler.jsonc"
+      - "cloudflare.config.ts"
+      - "wrangler.config.ts"
   workflow_dispatch:
 concurrency:
   group: worker-production
@@ -38,6 +40,18 @@ jobs:
           version: 2026.10.2
       - name: Install dependencies
         run: mise deps
+      - name: Run checks
+        run: mise run check --lint
+      - name: Run tests
+        run: mise run test
+      - name: Build Worker
+        run: mise run worker:build
+      - name: Validate Worker deployment
+        uses: risu729/wrangler-deploy-action@0d45a001e87e556e88dcf4aa6111a2dab05ea42b # v2.1.1
+        with:
+          mode: dry-run
+          worker: github-notification-cleanup
+          build-mode: production
       - name: Provision Queues
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -49,10 +63,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: mise run worker:migrate
       - name: Deploy Worker
-        uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
+        uses: risu729/wrangler-deploy-action@0d45a001e87e556e88dcf4aa6111a2dab05ea42b # v2.1.1
         with:
           mode: production
-          config: wrangler.jsonc
+          worker: github-notification-cleanup
+          build-mode: production
+          deploy-triggers: "true"
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           secrets-json: >-

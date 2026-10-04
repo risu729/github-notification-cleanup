@@ -63,11 +63,14 @@ jobs:
           version: 2026.10.2
       - name: Install dependencies
         run: mise deps
+      - name: Build Worker
+        run: mise run worker:build
       - name: Validate Worker deployment
-        uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
+        uses: risu729/wrangler-deploy-action@0d45a001e87e556e88dcf4aa6111a2dab05ea42b # v2.1.1
         with:
           mode: dry-run
-          config: wrangler.jsonc
+          worker: github-notification-cleanup
+          build-mode: production
   ci-check:
     name: CI Check
     needs:

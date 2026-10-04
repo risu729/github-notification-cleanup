@@ -137,12 +137,26 @@ the `CLOUDFLARE_API_TOKEN` Actions secret. The deployment creates the primary
 and dead-letter queues when absent. Restrict the Cloudflare token to the target
 account with these permissions:
 
-- `Workers Scripts: Edit`
-- `D1: Edit`
+- `Individual Workers Editor`, restricted to `github-notification-cleanup`
+- Account `D1: Write`, for the production database migrations
+- Account `Queues: Write`, for queue provisioning and consumer configuration
 
 The D1 permission allows the deployment workflow to apply versioned database
 migrations before deploying the Worker. The database binding gives the Worker
 direct access without a separate API credential or network request.
+
+Production uses `cloudflare.config.ts` and pinned `cf@1.0.0-beta.12`. The shared
+Deploy Action v2.1.1 validates the prebuilt Worker, uploads the `GH_TOKEN` secret
+with its new version, deploys that exact version at 100%, and verifies the
+deployment. Checks, tests, and a dry run pass before Queue provisioning and D1
+migrations. Cron and Queue triggers are explicitly synchronized afterward so
+configuration changes reach production. There are no HTTP routes or Custom
+Domains; neither zone permissions nor Workers Previews permissions are needed.
+
+Pull requests run the existing tests and a credential-free prebuilt dry run.
+`test/wrangler.jsonc` is only the Vitest runtime fixture; the deployment reads
+`cloudflare.config.ts`. Every build checks that the fixture bindings, Cron and
+Queue triggers, runtime, and URL settings match the production output.
 
 ## Development
 
@@ -158,10 +172,10 @@ Create `.dev.vars` with a suitable token for local Worker development:
 GH_TOKEN=...
 ```
 
-Then start Wrangler's local scheduled-handler environment:
+Then start cf's local development environment:
 
 ```sh
-bun run wrangler dev --test-scheduled
+bun run cf dev --mode production
 ```
 
 Invoke the local scheduled handler with:
