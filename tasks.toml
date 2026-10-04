@@ -16,7 +16,7 @@ description = "Run hk linters and formatters."
 [test]
 depends = ["worker:generate-types"]
 env = { GH_TOKEN = "test" }
-run = "bun run vitest run"
+run = ["bun run vitest run", "bun scripts/test-queue-provision.mjs"]
 description = "Run unit tests."
 
 ["worker:generate-types"]
@@ -35,9 +35,9 @@ env.CLOUDFLARE_ACCOUNT_ID.required = "Set the Cloudflare account ID"
 env.CLOUDFLARE_API_TOKEN.required = "Set a Cloudflare Workers API token"
 run = '''
 queues="$(bun run cf queues list)"
-jq --exit-status 'type == "array" and all(.[]; .queue_name | type == "string")' <<<"$queues" >/dev/null
+printf '%s\n' "$queues" | jq --exit-status 'type == "array" and all(.[]; .queue_name | type == "string")' >/dev/null
 for queue in github-notification-cleanup-notifications github-notification-cleanup-failures; do
-  if ! jq --exit-status --arg name "$queue" 'any(.[]; .queue_name == $name)' <<<"$queues" >/dev/null; then
+  if ! printf '%s\n' "$queues" | jq --exit-status --arg name "$queue" 'any(.[]; .queue_name == $name)' >/dev/null; then
     bun run cf queues create --queue-name "$queue"
   fi
 done
