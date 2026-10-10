@@ -24,9 +24,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
-          version: 2026.9.17
+          version: 2026.10.7
       - name: Run check
         run: mise run check --lint
   test:
@@ -41,9 +41,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
-          version: 2026.9.17
+          version: 2026.10.7
       - name: Run tests
         run: mise run test
   worker:
@@ -58,16 +58,19 @@ jobs:
         with:
           persist-credentials: false
       - name: Install mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
-          version: 2026.9.17
+          version: 2026.10.7
       - name: Install dependencies
         run: mise deps
+      - name: Build Worker
+        run: mise run worker:build
       - name: Validate Worker deployment
-        uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
+        uses: risu729/wrangler-deploy-action@6a93154ef1c550b760d8582bcf59d8d4a0710788 # v2.2.1
         with:
           mode: dry-run
-          config: wrangler.jsonc
+          worker: github-notification-cleanup
+          build-mode: production
   ci-check:
     name: CI Check
     needs:

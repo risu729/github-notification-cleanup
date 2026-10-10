@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 .wrangler/
 worker-configuration.d.ts
 worker-startup.cpuprofile
+
+# Cloudflare CLI build output and generated types
+.cloudflare/
