@@ -25,6 +25,7 @@ defaults:
 jobs:
   deploy:
     name: Deploy
+    environment: production
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
