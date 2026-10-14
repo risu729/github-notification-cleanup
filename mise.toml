@@ -21,6 +21,9 @@ yamllint = "1.38.0"
 betterleaks = "v1.9.0"
 
 [settings]
+lockfile = true
+lockfile_mode = "generate"
+lockfile_platforms = ["linux-x64", "macos-arm64"]
 experimental = true
 
 [settings.npm]
