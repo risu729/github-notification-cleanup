@@ -166,6 +166,15 @@ Run the repository checks with:
 mise run check --lint
 ```
 
+Worker type generation uses mise's local task cache. The cache includes the
+Worker configuration, sources, dependency locks, and tool configuration, and
+uses content hashes to detect changed inputs or edited outputs, and restores
+`.cloudflare/types` when it is missing or modified. Run
+`mise run --force worker:generate-types` to regenerate the types explicitly.
+If an external tool preserves both source file size and modification time while
+replacing its contents, touch the changed file before rerunning so mise refreshes
+its memoized content hash.
+
 Create `.dev.vars` with a suitable token for local Worker development:
 
 ```dotenv

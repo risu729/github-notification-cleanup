@@ -26,6 +26,7 @@ lockfile = true
 lockfile_mode = "generate"
 lockfile_platforms = ["linux-x64", "macos-arm64"]
 experimental = true
+task.source_freshness_hash_contents = true
 
 [settings.npm]
 package_manager = "bun"
