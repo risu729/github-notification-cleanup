@@ -166,6 +166,11 @@ Run the repository checks with:
 mise run check --lint
 ```
 
+Worker type generation uses mise's local task cache. The cache includes the
+Worker configuration, sources, dependency locks, and tool configuration, and
+restores `.cloudflare/types` when it is missing. Run
+`mise run --force worker:generate-types` to regenerate the types explicitly.
+
 Create `.dev.vars` with a suitable token for local Worker development:
 
 ```dotenv

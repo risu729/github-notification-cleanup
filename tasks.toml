@@ -20,6 +20,19 @@ run = ["bun run vitest run", "bun scripts/test-queue-provision.mjs"]
 description = "Run unit tests."
 
 ["worker:generate-types"]
+sources = [
+  "cloudflare.config.ts",
+  "wrangler.config.ts",
+  "src/**",
+  "package.json",
+  "bun.lock",
+  "tsconfig.json",
+  "mise.toml",
+  "mise.lock",
+  "tasks.toml",
+]
+outputs = [".cloudflare/types"]
+cache = { enabled = true, env = ["NODE_ENV", "NODE_OPTIONS", "BUN_OPTIONS"] }
 run = "bun run cf workers types --mode production"
 hide = true
 description = "Generate Cloudflare Worker runtime and binding types."
