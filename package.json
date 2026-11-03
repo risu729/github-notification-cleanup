@@ -9,7 +9,7 @@
     "uuid": "14.0.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.11",
+    "@cloudflare/vitest-plugin": "1.4.12",
     "@risu729/tsconfigs": "3.0.1",
     "cf": "1.0.0-beta.26",
     "vitest": "5.0.5",
