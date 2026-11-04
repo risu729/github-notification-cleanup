@@ -12,7 +12,7 @@
     "@cloudflare/vitest-plugin": "1.4.12",
     "@risu729/tsconfigs": "3.0.1",
     "cf": "1.0.0-beta.27",
-    "vitest": "5.0.5",
+    "vitest": "5.1.0",
     "wrangler": "4.156.2"
   }
 }
