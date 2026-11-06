@@ -356,7 +356,7 @@ describe("notification Queue consumer", () => {
     vi.restoreAllMocks();
   });
 
-  test.each([false, true])("handles a security bot review with human activity %s", async (human) => {
+  test.each([false, true])("handles security reviews with human activity %s", async (human) => {
     let markedDone = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
