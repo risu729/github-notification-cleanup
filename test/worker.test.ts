@@ -196,7 +196,7 @@ describe("notification discovery", () => {
       markedDone: 0,
       mergeMarkedDone: 0,
       notifications: 2,
-      openPullRequestMarkedDone: 0,
+      ownPullRequestMarkedDone: 0,
       prCloserWarningMarkedDone: 0,
       pullRequests: 1,
       releaseMarkedDone: 0,
@@ -356,6 +356,127 @@ describe("notification Queue consumer", () => {
     vi.restoreAllMocks();
   });
 
+  test.each([
+    {
+      authorId: 79_110_363,
+      draft: false,
+      name: "an open own kogane PR",
+      repository: "risu729/kogane",
+      state: "open",
+    },
+    {
+      authorId: 79_110_363,
+      draft: true,
+      name: "a draft own pateat PR",
+      repository: "risu729/pateat",
+      state: "open",
+    },
+    {
+      authorId: 79_110_363,
+      draft: false,
+      name: "a closed own PR outside personal repositories",
+      repository: "other/project",
+      state: "closed",
+    },
+    {
+      authorId: 29_139_614,
+      draft: true,
+      name: "an open Renovate PR without auto-merge",
+      repository: "other/project",
+      state: "open",
+    },
+  ])("suppresses $name without reading its timeline", async (testCase) => {
+    const { authorId, draft, repository, state } = testCase;
+    const candidate = {
+      ...notification("1", 1),
+      repository,
+      subjectUrl: `https://api.github.com/repos/${repository}/pulls/1`,
+    };
+    const currentThread = {
+      ...thread("1", 1),
+      repository: { full_name: repository },
+      subject: {
+        title: candidate.subjectTitle,
+        type: "PullRequest",
+        url: candidate.subjectUrl,
+      },
+    };
+    const deleted: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1") {
+        if (request.method === "DELETE") {
+          deleted.push(pathname);
+          return new Response(null, { status: 204 });
+        }
+        return response(currentThread);
+      }
+      if (pathname === `/repos/${repository}/pulls/1`) {
+        return response(pullRequest(1, { draft, state, user: { id: authorId } }));
+      }
+      return response({ message: "timeline must not be requested" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const batch = queueBatch([candidate]);
+
+    await worker.queue(batch, env);
+
+    expect(deleted).toEqual(["/notifications/threads/1"]);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual({
+      outcome: "marked_done",
+      reason: authorId === 29_139_614 ? "renovate_pull_request" : "pull_request_by_current_user",
+    });
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      ownPullRequestMarkedDone: authorId === 79_110_363 ? 1 : 0,
+      renovateMarkedDone: authorId === 29_139_614 ? 1 : 0,
+    });
+  });
+
+  test("retains an own PR notification changed during evaluation", async () => {
+    let threadReads = 0;
+    let markedDone = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1") {
+        if (request.method === "DELETE") {
+          markedDone = true;
+          return new Response(null, { status: 204 });
+        }
+        threadReads += 1;
+        return response({
+          ...thread("1", 1),
+          updated_at: threadReads === 1 ? "2026-08-04T00:02:00Z" : "2026-08-04T00:03:00Z",
+        });
+      }
+      if (pathname === "/repos/owner/repo/pulls/1") {
+        return response(pullRequest(1, { user: { id: 79_110_363 } }));
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await worker.queue(queueBatch([notification("1", 1)]), env);
+
+    expect(markedDone).toBe(false);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual({ outcome: "retained", reason: "concurrently_updated" });
+  });
+
   test("marks an auto-merge Renovate notification done and acknowledges it", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =
@@ -393,7 +514,7 @@ describe("notification Queue consumer", () => {
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
-    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_auto_merge" });
+    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_pull_request" });
   });
 
   test.each([
@@ -438,12 +559,12 @@ describe("notification Queue consumer", () => {
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
-    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_merged" });
+    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_pull_request" });
     const [run] = await loadRuns();
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ renovateMarkedDone: 1 });
   });
 
-  test("retains a Renovate-authored pull request closed without merge", async () => {
+  test("marks a Renovate-authored pull request closed without merge done", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
@@ -465,8 +586,8 @@ describe("notification Queue consumer", () => {
           }),
         );
       }
-      if (pathname === "/repos/owner/repo/issues/1/timeline") {
-        return response([]);
+      if (pathname === "/notifications/threads/1" && method === "DELETE") {
+        return new Response(null, { status: 204 });
       }
       return response({ message: "unexpected test request" }, 500);
     });
@@ -481,7 +602,7 @@ describe("notification Queue consumer", () => {
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
-    expect(audit).toEqual({ outcome: "retained", reason: "requires_attention" });
+    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_pull_request" });
   });
 
   test("marks a jdx release pull request notification done and acknowledges it", async () => {
@@ -570,7 +691,7 @@ describe("notification Queue consumer", () => {
         return response(
           pullRequest(11_686, {
             html_url: "https://github.com/jdx/mise/pull/11686",
-            user: { id: 79_110_363 },
+            user: { id: 1 },
           }),
         );
       }
@@ -635,7 +756,7 @@ describe("notification Queue consumer", () => {
         return response(
           pullRequest(560, {
             html_url: "https://github.com/unsw-ajc-society/ajcsoc-website/pull/560",
-            user: { id: 29_139_614 },
+            user: { id: 1 },
           }),
         );
       }
@@ -673,7 +794,7 @@ describe("notification Queue consumer", () => {
     });
   });
 
-  test("marks a jdx merge with its paired close done and acknowledges it", async () => {
+  test("marks an own jdx PR merged by jdx done and acknowledges it", async () => {
     const mergeNotification: Notification = {
       ...notification("1", 11_550),
       subjectUrl: "https://api.github.com/repos/jdx/mise/pulls/11550",
@@ -736,9 +857,9 @@ describe("notification Queue consumer", () => {
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
-    expect(audit).toEqual({ outcome: "marked_done", reason: "merged_by_ignored_merger" });
+    expect(audit).toEqual({ outcome: "marked_done", reason: "pull_request_by_current_user" });
     const [run] = await loadRuns();
-    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ mergeMarkedDone: 1 });
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ ownPullRequestMarkedDone: 1 });
   });
 
   test("marks a dotfiles merge by the authenticated user done and acknowledges it", async () => {
@@ -769,7 +890,7 @@ describe("notification Queue consumer", () => {
           pullRequest(4006, {
             html_url: "https://github.com/risu729/dotfiles/pull/4006",
             state: "closed",
-            user: { id: 79_110_363 },
+            user: { id: 1 },
           }),
         );
       }
@@ -847,7 +968,7 @@ describe("notification Queue consumer", () => {
           pullRequest(11_720, {
             html_url: "https://github.com/jdx/mise/pull/11720",
             state: "open",
-            user: { id: 79_110_363 },
+            user: { id: 1 },
           }),
         );
       }
@@ -895,7 +1016,7 @@ describe("notification Queue consumer", () => {
   });
 
   test.each([
-    { authorId: 79_110_363, name: "outside jdx", owner: "owner" },
+    { authorId: 1, name: "outside jdx", owner: "owner" },
     { authorId: 1, name: "for another author's jdx PR", owner: "jdx" },
   ])("retains the same merge pair $name", async ({ authorId, owner }) => {
     const mergeNotification: Notification = {
@@ -999,7 +1120,7 @@ describe("notification Queue consumer", () => {
         return response(
           pullRequest(11_686, {
             html_url: "https://github.com/jdx/mise/pull/11686",
-            user: { id: 79_110_363 },
+            user: { id: 1 },
           }),
         );
       }
@@ -1039,7 +1160,7 @@ describe("notification Queue consumer", () => {
     });
   });
 
-  test("marks ready and draft jdx PRs by other authors done", async () => {
+  test("retains ready and draft jdx PRs by other authors", async () => {
     const notifications = [
       {
         ...notification("1", 1),
@@ -1082,8 +1203,8 @@ describe("notification Queue consumer", () => {
           }),
         );
       }
-      if (threadMatch !== null && method === "DELETE") {
-        return new Response(null, { status: 204 });
+      if (/^\/repos\/jdx\/mise\/issues\/\d+\/timeline$/.test(pathname)) {
+        return response([]);
       }
       return response({ message: "unexpected test request" }, 500);
     });
@@ -1100,18 +1221,19 @@ describe("notification Queue consumer", () => {
       "SELECT outcome, reason FROM cleanup_run_notifications ORDER BY notification_id",
     ).all<{ outcome: string; reason: string }>();
     expect(audits).toEqual([
-      { outcome: "marked_done", reason: "open_pull_request_by_other_author" },
-      { outcome: "marked_done", reason: "open_pull_request_by_other_author" },
+      { outcome: "retained", reason: "requires_attention" },
+      { outcome: "retained", reason: "requires_attention" },
     ]);
     const [run] = await loadRuns();
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
-      openPullRequestMarkedDone: 2,
+      ownPullRequestMarkedDone: 0,
+      retained: 2,
     });
   });
 
-  test("retains pull requests outside the open other-author policy", async () => {
+  test("retains other and unknown authors across repositories", async () => {
     const candidates = [
-      { author: { id: 79_110_363 }, id: "1", owner: "jdx", state: "open" },
+      { author: { id: 1 }, id: "1", owner: "jdx", state: "open" },
       { author: { id: 1 }, id: "2", owner: "jdx", state: "closed" },
       { author: null, id: "3", owner: "jdx", state: "open" },
       { author: { id: 1 }, id: "4", owner: "someone-else", state: "open" },
@@ -1186,7 +1308,7 @@ describe("notification Queue consumer", () => {
     const [run] = await loadRuns();
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
       markedDone: 0,
-      openPullRequestMarkedDone: 0,
+      ownPullRequestMarkedDone: 0,
       retained: 4,
     });
   });
