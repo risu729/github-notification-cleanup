@@ -29,6 +29,7 @@ const ignoredBotIds = new Set([
   sourceryBotId,
 ]);
 const ignoredMergerIdsByOwner = new Map([["jdx", new Set([jdxUserId])]]);
+const ignoredOpenPullRequestOwners = new Set(["jdx"]);
 const notificationActivityLookbackMilliseconds = 5 * 60 * 1_000;
 const workflowRunNotificationMatchWindowMilliseconds = 5 * 60 * 1_000;
 const maxGitHubRequestsPerNotification = 50;
@@ -50,9 +51,11 @@ type WorkflowRun = Awaited<
   ReturnType<Octokit["rest"]["actions"]["listWorkflowRunsForRepo"]>
 >["data"]["workflow_runs"][number];
 
-type PullRequestAuthor = {
+type OpenPullRequest = {
   authorId: number | undefined;
   currentUserId: number;
+  owner: string;
+  state: PullRequest["state"];
 };
 
 type SuppressionReason =
@@ -60,11 +63,14 @@ type SuppressionReason =
   | "ignored_bot_review"
   | "merged_by_current_user"
   | "merged_by_ignored_merger"
-  | "pull_request_by_current_user"
+  | "open_pull_request_by_other_author"
   | "pr_closer_warning"
   | "release_pull_request"
-  | "renovate_pull_request"
+  | "renovate_auto_merge"
+  | "renovate_merged"
   | "stale_workflow_run";
+
+const renovateSuppressionReasons = new Set<string>(["renovate_auto_merge", "renovate_merged"]);
 
 type IgnoredActivityKind =
   | "cloudflare_deployment_comment"
@@ -96,7 +102,7 @@ export type Summary = {
   markedDone: number;
   mergeMarkedDone: number;
   notifications: number;
-  ownPullRequestMarkedDone: number;
+  openPullRequestMarkedDone: number;
   prCloserWarningMarkedDone: number;
   pullRequests: number;
   releaseMarkedDone: number;
@@ -221,7 +227,7 @@ export const createEmptySummary = (): Summary => {
     markedDone: 0,
     mergeMarkedDone: 0,
     notifications: 0,
-    ownPullRequestMarkedDone: 0,
+    openPullRequestMarkedDone: 0,
     prCloserWarningMarkedDone: 0,
     pullRequests: 0,
     releaseMarkedDone: 0,
@@ -240,11 +246,31 @@ export const isReleasePullRequest = ({ headRef, owner }: ReleasePullRequest): bo
   return isSuppressedOwner && headRef.startsWith("release");
 };
 
-export const isPullRequestByCurrentUser = ({
+const getRenovateSuppressionReason = (pullRequest: PullRequest): SuppressionReason | undefined => {
+  if (pullRequest.user?.id !== renovateBotId) {
+    return undefined;
+  }
+  if (pullRequest.auto_merge !== null) {
+    return "renovate_auto_merge";
+  }
+  if (pullRequest.merged_at !== null) {
+    return "renovate_merged";
+  }
+  return undefined;
+};
+
+export const isOpenPullRequestByOtherAuthor = ({
   authorId,
   currentUserId,
-}: PullRequestAuthor): boolean => {
-  return authorId !== undefined && authorId === currentUserId;
+  owner,
+  state,
+}: OpenPullRequest): boolean => {
+  return (
+    ignoredOpenPullRequestOwners.has(owner) &&
+    state === "open" &&
+    authorId !== undefined &&
+    authorId !== currentUserId
+  );
 };
 
 const parsePullRequestUrl = (subjectUrl: string): PullRequestCoordinates => {
@@ -578,18 +604,7 @@ const loadActivitySuppressionReason = async (
 
 const suppressionRulesByPriority: SuppressionRule[] = [
   {
-    evaluate: ({ pullRequest }) => {
-      return pullRequest.user?.id === renovateBotId ? "renovate_pull_request" : undefined;
-    },
-  },
-  {
-    evaluate: ({ currentUserId, pullRequest }) => {
-      const pullRequestByCurrentUser = isPullRequestByCurrentUser({
-        authorId: pullRequest.user?.id,
-        currentUserId,
-      });
-      return pullRequestByCurrentUser ? "pull_request_by_current_user" : undefined;
-    },
+    evaluate: ({ pullRequest }) => getRenovateSuppressionReason(pullRequest),
   },
   {
     evaluate: ({ coordinates, pullRequest }) => {
@@ -599,6 +614,20 @@ const suppressionRulesByPriority: SuppressionRule[] = [
       });
       if (releasePullRequest) {
         return "release_pull_request";
+      }
+      return undefined;
+    },
+  },
+  {
+    evaluate: ({ coordinates, currentUserId, pullRequest }) => {
+      const openPullRequestByOtherAuthor = isOpenPullRequestByOtherAuthor({
+        authorId: pullRequest.user?.id,
+        currentUserId,
+        owner: coordinates.owner,
+        state: pullRequest.state,
+      });
+      if (openPullRequestByOtherAuthor) {
+        return "open_pull_request_by_other_author";
       }
       return undefined;
     },
@@ -1045,12 +1074,12 @@ export const triageNotifications = async ({
       if (audit.outcome === "marked_done") {
         summary.evaluated += 1;
         summary.markedDone += 1;
-        if (audit.reason === "renovate_pull_request") {
+        if (renovateSuppressionReasons.has(audit.reason)) {
           summary.renovateMarkedDone += 1;
         } else if (audit.reason === "release_pull_request") {
           summary.releaseMarkedDone += 1;
-        } else if (audit.reason === "pull_request_by_current_user") {
-          summary.ownPullRequestMarkedDone += 1;
+        } else if (audit.reason === "open_pull_request_by_other_author") {
+          summary.openPullRequestMarkedDone += 1;
         } else if (audit.reason === "pr_closer_warning") {
           summary.prCloserWarningMarkedDone += 1;
         } else if (audit.reason === "cloudflare_deployment_comment") {
