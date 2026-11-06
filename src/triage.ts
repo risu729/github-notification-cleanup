@@ -66,11 +66,8 @@ type SuppressionReason =
   | "open_pull_request_by_other_author"
   | "pr_closer_warning"
   | "release_pull_request"
-  | "renovate_auto_merge"
-  | "renovate_merged"
+  | "renovate_pull_request"
   | "stale_workflow_run";
-
-const renovateSuppressionReasons = new Set<string>(["renovate_auto_merge", "renovate_merged"]);
 
 type IgnoredActivityKind =
   | "cloudflare_deployment_comment"
@@ -247,16 +244,7 @@ export const isReleasePullRequest = ({ headRef, owner }: ReleasePullRequest): bo
 };
 
 const getRenovateSuppressionReason = (pullRequest: PullRequest): SuppressionReason | undefined => {
-  if (pullRequest.user?.id !== renovateBotId) {
-    return undefined;
-  }
-  if (pullRequest.auto_merge !== null) {
-    return "renovate_auto_merge";
-  }
-  if (pullRequest.merged_at !== null) {
-    return "renovate_merged";
-  }
-  return undefined;
+  return pullRequest.user?.id === renovateBotId ? "renovate_pull_request" : undefined;
 };
 
 export const isOpenPullRequestByOtherAuthor = ({
@@ -1074,7 +1062,7 @@ export const triageNotifications = async ({
       if (audit.outcome === "marked_done") {
         summary.evaluated += 1;
         summary.markedDone += 1;
-        if (renovateSuppressionReasons.has(audit.reason)) {
+        if (audit.reason === "renovate_pull_request") {
           summary.renovateMarkedDone += 1;
         } else if (audit.reason === "release_pull_request") {
           summary.releaseMarkedDone += 1;
