@@ -17,7 +17,7 @@ type RetryRow = {
   notification_updated_at: string;
   repository: string | null;
   subject_title: string;
-  subject_type: "CheckSuite" | "PullRequest";
+  subject_type: "CheckRun" | "CheckSuite" | "PullRequest";
   subject_url: string;
   unread: number;
 };

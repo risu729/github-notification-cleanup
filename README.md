@@ -6,7 +6,7 @@ attention.
 ## Behavior
 
 A Cloudflare Worker polls GitHub every 5 minutes and publishes pull request and
-Actions check suite notifications to a Cloudflare Queue. Queue consumers
+check suite/run notifications to a Cloudflare Queue. Queue consumers
 evaluate at most ten notifications per invocation and scale out automatically,
 so bursts drain independently of the polling schedule.
 
@@ -55,8 +55,20 @@ A notification is marked done when any of these rules match:
 - every attributable activity in the notification window is from the
   authenticated user or a configured bot, and at least one is a configured bot
   comment or review; or
+- a check notification reports a failure, timeout, or startup failure in any
+  repository, including repositories owned by other users or organizations; or
 - an Actions failure or cancellation has been superseded by a newer run of the
   same workflow and branch, including a later rerun attempt of the same run.
+
+Failed-check suppression applies to `CheckSuite` and `CheckRun` notifications,
+regardless of their notification reason or check provider. Generated Actions
+failure titles, including rerun attempts, identify failures even when GitHub
+omits the check URL. For other check notifications with a Checks API URL, the
+Worker reads the suite or run and requires a completed `failure`, `timed_out`,
+or `startup_failure` conclusion. Missing identities and unrecognized titles are
+retained. Successful, queued, and neutral checks are not suppressed by this
+rule. PR conversations are not hidden merely because a check on that PR fails.
+The existing concurrent-update recheck and Queue retries still apply.
 
 GitHub's notification API does not identify the workflow run behind a check
 suite notification. The Worker therefore reconstructs the exact generated

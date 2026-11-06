@@ -83,8 +83,8 @@ const workflowThread = (notification: Notification): Record<string, unknown> => 
   repository: { full_name: notification.repository },
   subject: {
     title: notification.subjectTitle,
-    type: "CheckSuite",
-    url: null,
+    type: notification.subjectType,
+    url: notification.subjectUrl.includes("/repos/") ? notification.subjectUrl : null,
   },
   unread: notification.unread,
   updated_at: notification.updatedAt,
@@ -193,6 +193,7 @@ describe("notification discovery", () => {
       botReviewMarkedDone: 0,
       cloudflareDeploymentMarkedDone: 0,
       evaluated: 0,
+      failedChecksMarkedDone: 0,
       markedDone: 0,
       mergeMarkedDone: 0,
       notifications: 2,
@@ -210,16 +211,21 @@ describe("notification discovery", () => {
     });
   });
 
-  test("enqueues Actions check suite notifications", async () => {
-    const candidate = workflowNotification();
+  test.each([
+    { reason: "ci_activity", subjectType: "CheckSuite" },
+    { reason: "subscribed", subjectType: "CheckSuite" },
+    { reason: "subscribed", subjectType: "CheckRun" },
+  ] as const)("enqueues check subjects with reason $reason", async (testCase) => {
+    const { reason, subjectType } = testCase;
+    const candidate = { ...workflowNotification(), subjectType };
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       response([
         {
           id: candidate.id,
           last_read_at: candidate.lastReadAt,
-          reason: "ci_activity",
+          reason,
           repository: { full_name: candidate.repository },
-          subject: { title: candidate.subjectTitle, type: "CheckSuite", url: null },
+          subject: { title: candidate.subjectTitle, type: subjectType, url: null },
           unread: candidate.unread,
           updated_at: candidate.updatedAt,
           url: candidate.subjectUrl,
@@ -1198,7 +1204,7 @@ describe("notification Queue consumer", () => {
       expectedReason: "stale_workflow_run",
       name: "a newer run with a different commit",
       runs: [
-        workflowRun(),
+        workflowRun({ conclusion: "cancelled" }),
         workflowRun({
           conclusion: "success",
           created_at: "2026-08-04T00:03:00Z",
@@ -1209,7 +1215,7 @@ describe("notification Queue consumer", () => {
       ],
     },
     {
-      attempts: { "100/1": workflowRun() },
+      attempts: { "100/1": workflowRun({ conclusion: "cancelled" }) },
       expectedOutcome: "marked_done",
       expectedReason: "stale_workflow_run",
       name: "a later rerun of the same commit",
@@ -1227,7 +1233,7 @@ describe("notification Queue consumer", () => {
       expectedOutcome: "retained",
       expectedReason: "workflow_run_current_or_ambiguous",
       name: "no superseding run",
-      runs: [workflowRun()],
+      runs: [workflowRun({ conclusion: "cancelled" })],
     },
     {
       attempts: {},
@@ -1235,8 +1241,9 @@ describe("notification Queue consumer", () => {
       expectedReason: "workflow_run_current_or_ambiguous",
       name: "more than one plausible run",
       runs: [
-        workflowRun(),
+        workflowRun({ conclusion: "cancelled" }),
         workflowRun({
+          conclusion: "cancelled",
           created_at: "2026-08-04T00:01:00Z",
           id: 101,
           updated_at: "2026-08-04T00:02:10Z",
@@ -1244,7 +1251,10 @@ describe("notification Queue consumer", () => {
       ],
     },
   ])("classifies an Actions notification with $name", async (testCase) => {
-    const candidate = workflowNotification();
+    const candidate = {
+      ...workflowNotification(),
+      subjectTitle: "test workflow run cancelled for feature branch",
+    };
     let markedDone = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
@@ -1290,6 +1300,57 @@ describe("notification Queue consumer", () => {
     const [run] = await loadRuns();
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
       staleWorkflowRunsMarkedDone: testCase.expectedOutcome === "marked_done" ? 1 : 0,
+      workflowRuns: 1,
+    });
+  });
+
+  test.each(["CheckSuite", "CheckRun"] as const)("marks a failed %s done", async (subjectType) => {
+    const repository = subjectType === "CheckSuite" ? "jdx/mise" : "external/project";
+    const candidate: Notification = {
+      ...workflowNotification(),
+      repository,
+      subjectType,
+      subjectUrl:
+        subjectType === "CheckSuite"
+          ? "https://api.github.com/notifications/threads/1"
+          : "https://api.github.com/repos/external/project/check-runs/700",
+    };
+    let markedDone = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1") {
+        if (request.method === "DELETE") {
+          markedDone = true;
+          return new Response(null, { status: 204 });
+        }
+        return response(workflowThread(candidate));
+      }
+      if (pathname === "/repos/external/project/check-runs/700") {
+        return response({ conclusion: "failure", status: "completed" });
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await worker.queue(queueBatch([candidate]), env);
+
+    expect(markedDone).toBe(true);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason, subject_type FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string; subject_type: string }>();
+    expect(audit).toEqual({
+      outcome: "marked_done",
+      reason: "failed_check",
+      subject_type: subjectType,
+    });
+    const [run] = await loadRuns();
+    expect(JSON.parse(run?.summary ?? "null")).toMatchObject({
+      failedChecksMarkedDone: 1,
+      staleWorkflowRunsMarkedDone: 0,
       workflowRuns: 1,
     });
   });

@@ -153,7 +153,7 @@ const recordExhaustedBatch = async (batch: MessageBatch<Notification>, env: Env)
     (notification) => notification.subjectType === "PullRequest",
   ).length;
   summary.workflowRuns = notifications.filter(
-    (notification) => notification.subjectType === "CheckSuite",
+    (notification) => notification.subjectType !== "PullRequest",
   ).length;
   summary.retained = notifications.length;
   summary.retryExhausted = notifications.length;
