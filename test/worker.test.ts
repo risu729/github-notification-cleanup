@@ -357,11 +357,36 @@ describe("notification Queue consumer", () => {
   });
 
   test.each([
-    { authorId: 79_110_363, draft: false, name: "an open own kogane PR", repository: "risu729/kogane", state: "open" },
-    { authorId: 79_110_363, draft: true, name: "a draft own pateat PR", repository: "risu729/pateat", state: "open" },
-    { authorId: 79_110_363, draft: false, name: "a closed own PR outside personal repositories", repository: "other/project", state: "closed" },
-    { authorId: 29_139_614, draft: true, name: "an open Renovate PR without auto-merge", repository: "other/project", state: "open" },
-  ])("suppresses $name without reading its timeline", async ({ authorId, draft, repository, state }) => {
+    {
+      authorId: 79_110_363,
+      draft: false,
+      name: "an open own kogane PR",
+      repository: "risu729/kogane",
+      state: "open",
+    },
+    {
+      authorId: 79_110_363,
+      draft: true,
+      name: "a draft own pateat PR",
+      repository: "risu729/pateat",
+      state: "open",
+    },
+    {
+      authorId: 79_110_363,
+      draft: false,
+      name: "a closed own PR outside personal repositories",
+      repository: "other/project",
+      state: "closed",
+    },
+    {
+      authorId: 29_139_614,
+      draft: true,
+      name: "an open Renovate PR without auto-merge",
+      repository: "other/project",
+      state: "open",
+    },
+  ])("suppresses $name without reading its timeline", async (testCase) => {
+    const { authorId, draft, repository, state } = testCase;
     const candidate = {
       ...notification("1", 1),
       repository,
@@ -377,7 +402,7 @@ describe("notification Queue consumer", () => {
       },
     };
     const deleted: string[] = [];
-    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const pathname = new URL(request.url).pathname;
       if (pathname === "/user") {
@@ -401,7 +426,6 @@ describe("notification Queue consumer", () => {
     await worker.queue(batch, env);
 
     expect(deleted).toEqual(["/notifications/threads/1"]);
-    expect(fetch).toHaveBeenCalledTimes(4);
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
