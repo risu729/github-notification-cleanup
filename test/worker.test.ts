@@ -356,7 +356,7 @@ describe("notification Queue consumer", () => {
     vi.restoreAllMocks();
   });
 
-  test("marks an auto-merge Renovate notification done and acknowledges it", async () => {
+  test.each([null, {}])("suppresses Renovate with auto-merge %s", async (autoMerge) => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
@@ -371,7 +371,7 @@ describe("notification Queue consumer", () => {
       if (pathname === "/repos/owner/repo/pulls/1") {
         return response(
           pullRequest(1, {
-            auto_merge: {},
+            auto_merge: autoMerge,
             user: { id: 29_139_614 },
           }),
         );
@@ -393,7 +393,7 @@ describe("notification Queue consumer", () => {
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
-    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_auto_merge" });
+    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_pull_request" });
   });
 
   test.each([
@@ -438,12 +438,12 @@ describe("notification Queue consumer", () => {
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
-    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_merged" });
+    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_pull_request" });
     const [run] = await loadRuns();
     expect(JSON.parse(run?.summary ?? "null")).toMatchObject({ renovateMarkedDone: 1 });
   });
 
-  test("retains a Renovate-authored pull request closed without merge", async () => {
+  test("marks a Renovate-authored pull request closed without merge done", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
@@ -465,8 +465,8 @@ describe("notification Queue consumer", () => {
           }),
         );
       }
-      if (pathname === "/repos/owner/repo/issues/1/timeline") {
-        return response([]);
+      if (pathname === "/notifications/threads/1" && method === "DELETE") {
+        return new Response(null, { status: 204 });
       }
       return response({ message: "unexpected test request" }, 500);
     });
@@ -481,7 +481,7 @@ describe("notification Queue consumer", () => {
     const audit = await env.DB.prepare(
       "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
     ).first<{ outcome: string; reason: string }>();
-    expect(audit).toEqual({ outcome: "retained", reason: "requires_attention" });
+    expect(audit).toEqual({ outcome: "marked_done", reason: "renovate_pull_request" });
   });
 
   test("marks a jdx release pull request notification done and acknowledges it", async () => {
