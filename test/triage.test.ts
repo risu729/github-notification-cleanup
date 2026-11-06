@@ -749,4 +749,3 @@ head_sha: abc123
     expect(reason).toBeUndefined();
   });
 });
-

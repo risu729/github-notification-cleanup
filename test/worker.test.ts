@@ -1526,4 +1526,3 @@ describe("notification Queue consumer", () => {
     });
   });
 });
-

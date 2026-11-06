@@ -189,4 +189,3 @@ The notification cleanup is implemented in TypeScript and runs on Cloudflare
 Workers. Tests use Cloudflare's Vitest integration. The checks use
 [hk](https://github.com/jdx/hk) to type-check, lint, and format the TypeScript
 and to validate the workflows, YAML, Markdown, and repository hygiene.
-
