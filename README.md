@@ -36,8 +36,8 @@ failure and is consumed after a successful or partial scan.
 
 A notification is marked done when any of these rules match:
 
-- its pull request was opened by Renovate and either has GitHub auto-merge
-  enabled or has already been merged; or
+- its pull request was opened by Renovate, regardless of its state, auto-merge
+  setting, repository, or timeline activity; or
 - its head branch begins with `release` in any `jdx/*` or `risu729/*`
   repository; or
 - its pull request is open in `jdx/*` and was authored by someone other than
@@ -113,10 +113,10 @@ PR auto-close warnings are recognized by the `<!-- pr-closer-warning` marker
 emitted by `jdx/pr-closer` and the immutable `github-actions[bot]` ID. The
 unmarked auto-close comment and the subsequent `closed` event are retained.
 
-Open Renovate pull requests without GitHub auto-merge, such as major updates
-that need manual review, are only suppressed by the stricter bot-review rule.
-Merged Renovate pull requests are suppressed regardless of who performed the
-merge; merely closed Renovate pull requests are retained.
+All Renovate-authored pull requests are suppressed, including open or draft
+pull requests without GitHub auto-merge and pull requests closed without merging.
+The author is identified by its immutable GitHub ID. Human comments do not block
+this rule. Other authors still use the existing suppression rules.
 Marking a notification as done does not modify its pull request.
 
 ## Setup
@@ -189,3 +189,4 @@ The notification cleanup is implemented in TypeScript and runs on Cloudflare
 Workers. Tests use Cloudflare's Vitest integration. The checks use
 [hk](https://github.com/jdx/hk) to type-check, lint, and format the TypeScript
 and to validate the workflows, YAML, Markdown, and repository hygiene.
+
