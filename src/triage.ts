@@ -1,6 +1,8 @@
 import { RequestError } from "@octokit/request-error";
 import { Octokit } from "@octokit/rest";
 
+import { isCheckSubjectType, isFailedCheckNotification } from "./checks";
+
 const apiOrigin = "https://api.github.com";
 const brewTestBotId = 1_589_480;
 const cloudflareWorkersAndPagesBotId = 73_139_402;
@@ -60,6 +62,7 @@ type OpenPullRequest = {
 
 type SuppressionReason =
   | "cloudflare_deployment_comment"
+  | "failed_check"
   | "ignored_bot_review"
   | "merged_by_current_user"
   | "merged_by_ignored_merger"
@@ -96,6 +99,7 @@ export type Summary = {
   botReviewMarkedDone: number;
   cloudflareDeploymentMarkedDone: number;
   evaluated: number;
+  failedChecksMarkedDone: number;
   markedDone: number;
   mergeMarkedDone: number;
   notifications: number;
@@ -118,7 +122,7 @@ export type Notification = {
   lastReadAt: string | null;
   repository: string;
   subjectTitle: string;
-  subjectType: "CheckSuite" | "PullRequest";
+  subjectType: "CheckRun" | "CheckSuite" | "PullRequest";
   subjectUrl: string;
   unread: boolean;
   updatedAt: string;
@@ -221,6 +225,7 @@ export const createEmptySummary = (): Summary => {
     botReviewMarkedDone: 0,
     cloudflareDeploymentMarkedDone: 0,
     evaluated: 0,
+    failedChecksMarkedDone: 0,
     markedDone: 0,
     mergeMarkedDone: 0,
     notifications: 0,
@@ -861,10 +866,9 @@ export const discoverNotifications = async ({
     candidates.set(notification.id, notification);
   }
   for (const notification of notifications) {
-    const isPullRequest =
-      notification.subject.type === "PullRequest" && notification.subject.url !== null;
-    const isWorkflowRun =
-      notification.reason === "ci_activity" && notification.subject.type === "CheckSuite";
+    const subjectType = notification.subject.type;
+    const isPullRequest = subjectType === "PullRequest" && notification.subject.url !== null;
+    const isWorkflowRun = isCheckSubjectType(subjectType);
     if (!isPullRequest && !isWorkflowRun) {
       continue;
     }
@@ -874,7 +878,7 @@ export const discoverNotifications = async ({
       lastReadAt: notification.last_read_at,
       repository: notification.repository.full_name,
       subjectTitle: notification.subject.title,
-      subjectType: isPullRequest ? "PullRequest" : "CheckSuite",
+      subjectType: isWorkflowRun ? subjectType : "PullRequest",
       subjectUrl: notification.subject.url ?? notification.url,
       unread: notification.unread,
       updatedAt: notification.updated_at,
@@ -883,8 +887,8 @@ export const discoverNotifications = async ({
   summary.pullRequests = [...candidates.values()].filter(
     (notification) => notification.subjectType === "PullRequest",
   ).length;
-  summary.workflowRuns = [...candidates.values()].filter(
-    (notification) => notification.subjectType === "CheckSuite",
+  summary.workflowRuns = [...candidates.values()].filter((notification) =>
+    isCheckSubjectType(notification.subjectType),
   ).length;
   return { notifications: [...candidates.values()], startedAt, summary };
 };
@@ -903,9 +907,9 @@ const triageNotification = async (
     const { data: initialThread } = await octokit.rest.activity.getThread({
       thread_id: threadId,
     });
-    const isPullRequest =
-      initialThread.subject.type === "PullRequest" && initialThread.subject.url !== null;
-    const isWorkflowRun = initialThread.subject.type === "CheckSuite";
+    const subjectType = initialThread.subject.type;
+    const isPullRequest = subjectType === "PullRequest" && initialThread.subject.url !== null;
+    const isWorkflowRun = isCheckSubjectType(subjectType);
     if (!isPullRequest && !isWorkflowRun) {
       return {
         notification: currentNotification,
@@ -922,7 +926,7 @@ const triageNotification = async (
       lastReadAt: initialThread.last_read_at,
       repository,
       subjectTitle: initialThread.subject.title ?? currentNotification.subjectTitle,
-      subjectType: isPullRequest ? "PullRequest" : "CheckSuite",
+      subjectType: isWorkflowRun ? subjectType : "PullRequest",
       subjectUrl: initialThread.subject.url ?? initialThread.url ?? currentNotification.subjectUrl,
       unread: initialThread.unread,
       updatedAt: initialThread.updated_at,
@@ -949,7 +953,9 @@ const triageNotification = async (
         octokit,
         pullRequest,
       });
-    } else {
+    } else if (await isFailedCheckNotification(currentNotification, octokit)) {
+      suppressionReason = "failed_check";
+    } else if (currentNotification.subjectType === "CheckSuite") {
       suppressionReason = await getStaleWorkflowRunSuppressionReason(currentNotification, octokit);
     }
     if (suppressionReason === undefined) {
@@ -958,9 +964,9 @@ const triageNotification = async (
         outcome: "retained",
         ...(pullNumber === undefined ? {} : { pullNumber }),
         reason:
-          currentNotification.subjectType === "CheckSuite"
-            ? "workflow_run_current_or_ambiguous"
-            : "requires_attention",
+          currentNotification.subjectType === "PullRequest"
+            ? "requires_attention"
+            : "workflow_run_current_or_ambiguous",
         repository,
       };
     }
@@ -1047,8 +1053,8 @@ export const triageNotifications = async ({
   summary.pullRequests = notifications.filter(
     (notification) => notification.subjectType === "PullRequest",
   ).length;
-  summary.workflowRuns = notifications.filter(
-    (notification) => notification.subjectType === "CheckSuite",
+  summary.workflowRuns = notifications.filter((notification) =>
+    isCheckSubjectType(notification.subjectType),
   ).length;
   summary.retried = notifications.filter((notification) => notification.attemptCount > 0).length;
   const audits: NotificationAudit[] = [];
@@ -1077,6 +1083,8 @@ export const triageNotifications = async ({
           audit.reason === "merged_by_ignored_merger"
         ) {
           summary.mergeMarkedDone += 1;
+        } else if (audit.reason === "failed_check") {
+          summary.failedChecksMarkedDone += 1;
         } else if (audit.reason === "stale_workflow_run") {
           summary.staleWorkflowRunsMarkedDone += 1;
         } else {
