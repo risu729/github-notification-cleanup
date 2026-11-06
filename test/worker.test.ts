@@ -635,7 +635,7 @@ describe("notification Queue consumer", () => {
         return response(
           pullRequest(560, {
             html_url: "https://github.com/unsw-ajc-society/ajcsoc-website/pull/560",
-            user: { id: 29_139_614 },
+            user: { id: 1 },
           }),
         );
       }
