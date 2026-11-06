@@ -8,6 +8,7 @@ const codeRabbitBotId = 136_622_811;
 const codeRabbitCommandTargetId = 132_028_505;
 const codecovBotId = 22_429_695;
 const githubActionsBotId = 41_898_282;
+const githubAdvancedSecurityBotId = 62_310_815;
 const greptileBotId = 165_735_046;
 const greptileCommandTargetId = 140_149_887;
 const jdxUserId = 216_188;
@@ -24,6 +25,7 @@ const ignoredBotIds = new Set([
   brewTestBotId,
   codeRabbitBotId,
   codecovBotId,
+  githubAdvancedSecurityBotId,
   greptileBotId,
   miseEnDevBotId,
   sourceryBotId,
