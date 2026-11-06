@@ -362,6 +362,62 @@ describe("notification Queue consumer", () => {
     vi.restoreAllMocks();
   });
 
+  test.each([false, true])("handles security reviews with human activity %s", async (human) => {
+    let markedDone = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/user") {
+        return response({ id: 79_110_363, login: "risu729" });
+      }
+      if (pathname === "/notifications/threads/1") {
+        if (request.method === "DELETE") {
+          markedDone = true;
+          return new Response(null, { status: 204 });
+        }
+        return response(thread("1", 1));
+      }
+      if (pathname === "/repos/owner/repo/pulls/1") {
+        return response(pullRequest(1, { user: { id: 79_110_363 } }));
+      }
+      if (pathname === "/repos/owner/repo/issues/1/timeline") {
+        const events = [
+          {
+            event: "reviewed",
+            submitted_at: "2026-08-04T00:01:00Z",
+            user: { id: 62_310_815 },
+          },
+        ];
+        return response([
+          ...events,
+          ...(human
+            ? [
+                {
+                  actor: { id: 1 },
+                  created_at: "2026-08-04T00:01:30Z",
+                  event: "commented",
+                },
+              ]
+            : []),
+        ]);
+      }
+      return response({ message: "unexpected test request" }, 500);
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await worker.queue(queueBatch([notification("1", 1)]), env);
+
+    expect(markedDone).toBe(!human);
+    const audit = await env.DB.prepare(
+      "SELECT outcome, reason FROM cleanup_run_notifications WHERE notification_id = '1'",
+    ).first<{ outcome: string; reason: string }>();
+    expect(audit).toEqual(
+      human
+        ? { outcome: "retained", reason: "requires_attention" }
+        : { outcome: "marked_done", reason: "ignored_bot_review" },
+    );
+  });
+
   test.each([null, {}])("suppresses Renovate with auto-merge %s", async (autoMerge) => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url =

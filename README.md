@@ -102,7 +102,8 @@ conditional mark-done operation, so a narrow race remains between those two
 requests.
 
 Comments and reviews by CodeRabbit, Codecov, Greptile, Sourcery,
-`mise-en-dev`, and `BrewTestBot` trigger bot-review suppression.
+`mise-en-dev`, `BrewTestBot`, and `github-advanced-security[bot]` trigger
+bot-review suppression.
 Cross-references by those bots are ignored as supporting activity but do not
 trigger suppression by themselves. Mentions of the CodeRabbit, Greptile, and
 Sourcery command identities are also ignored as supporting activity so their

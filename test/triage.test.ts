@@ -15,6 +15,7 @@ const currentUserId = 79_110_363;
 const greptileBotId = 165_735_046;
 const greptileCommandTargetId = 140_149_887;
 const githubActionsBotId = 41_898_282;
+const githubAdvancedSecurityBotId = 62_310_815;
 const humanId = 1;
 const jdxUserId = 216_188;
 const notificationUpdatedAt = "2026-08-04T00:05:00Z";
@@ -148,6 +149,22 @@ describe("open pull request suppression by author", () => {
 });
 
 describe("bot review notification suppression", () => {
+  test.each([false, true])("classifies a security review with human activity %s", async (human) => {
+    const events = [review(githubAdvancedSecurityBotId, "2026-08-04T00:01:00Z")];
+    if (human) {
+      events.push(comment(humanId, "2026-08-04T00:02:00Z"));
+    }
+    const reason = await classifyActivities(
+      events,
+      notificationUpdatedAt,
+      currentUserId,
+      "owner",
+      noCommitActors,
+    );
+
+    expect(reason).toBe(human ? undefined : "ignored_bot_review");
+  });
+
   test("suppresses a configured-bot-only comment within the notification window", async () => {
     const result = await hasOnlyIgnoredActivities(
       [comment(aiReviewerId, "2026-08-04T00:01:00Z")],
@@ -287,7 +304,7 @@ describe("bot review notification suppression", () => {
     expect(reason).toBeUndefined();
   });
 
-  test.each([miseEnDevBotId, brewTestBotId, codecovBotId])(
+  test.each([miseEnDevBotId, brewTestBotId, codecovBotId, githubAdvancedSecurityBotId])(
     "suppresses comments from configured bot %s",
     async (actorId) => {
       const reason = await classifyActivities(
@@ -302,7 +319,7 @@ describe("bot review notification suppression", () => {
     },
   );
 
-  test.each([miseEnDevBotId, brewTestBotId, codecovBotId])(
+  test.each([miseEnDevBotId, brewTestBotId, codecovBotId, githubAdvancedSecurityBotId])(
     "ignores cross-references from configured bot %s around a bot review",
     async (actorId) => {
       const result = await hasOnlyIgnoredActivities(
@@ -318,7 +335,7 @@ describe("bot review notification suppression", () => {
     },
   );
 
-  test.each([miseEnDevBotId, brewTestBotId, codecovBotId])(
+  test.each([miseEnDevBotId, brewTestBotId, codecovBotId, githubAdvancedSecurityBotId])(
     "does not suppress configured bot %s cross-references by themselves",
     async (actorId) => {
       const result = await hasOnlyIgnoredActivities(
