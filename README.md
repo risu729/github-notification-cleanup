@@ -36,12 +36,12 @@ failure and is consumed after a successful or partial scan.
 
 A notification is marked done when any of these rules match:
 
-- its pull request was opened by Renovate and either has GitHub auto-merge
-  enabled or has already been merged; or
+- its pull request was opened by Renovate, regardless of state, auto-merge,
+  activity, or repository; or
+- its pull request was opened by the authenticated user, regardless of state,
+  activity, or repository; or
 - its head branch begins with `release` in any `jdx/*` or `risu729/*`
   repository; or
-- its pull request is open in `jdx/*` and was authored by someone other than
-  the authenticated user; or
 - every attributable activity in the notification window is otherwise ignorable
   and at least one is a `github-actions[bot]` PR auto-close warning in a `jdx/*`
   repository; or
@@ -70,14 +70,18 @@ notification.
 Release pull request suppression relies only on the head branch name. Titles,
 labels, and authors vary across the supported repositories and are not checked.
 
-Open pull requests in `jdx/*` are suppressed regardless of whether they are
-drafts or ready for review when their known author ID differs from the
-authenticated user's ID. Closed pull requests and pull requests with an unknown
-author are retained by this rule.
+Author-based suppression applies to open, draft, merged, and closed pull
+requests in every repository. It does not inspect timeline activity, so human
+comments do not keep a Renovate-authored or self-authored pull request in the
+inbox. Other and unknown authors are not suppressed based on authorship alone,
+including in `jdx/*`, `risu729/kogane`, and `risu729/pateat`. The other
+suppression rules still apply; there is no repository-wide ignore or change to
+GitHub Watch settings.
 
 The actor checks use immutable GitHub IDs. The current user ID is retrieved from
 the authenticated `GH_TOKEN`; the automation and bot IDs are fixed.
-The notification window covers the five minutes ending at the notification's
+For activity-based rules on other authors' pull requests, the notification
+window covers the five minutes ending at the notification's
 `updated_at` timestamp. This accounts for GitHub updating a notification shortly
 after its causal event and keeps read notifications classifiable. Activity
 outside that window is ignored. Within the window, activity attributed to the
@@ -112,11 +116,9 @@ PR auto-close warnings are recognized by the `<!-- pr-closer-warning` marker
 emitted by `jdx/pr-closer` and the immutable `github-actions[bot]` ID. The
 unmarked auto-close comment and the subsequent `closed` event are retained.
 
-Open Renovate pull requests without GitHub auto-merge, such as major updates
-that need manual review, are only suppressed by the stricter bot-review rule.
-Merged Renovate pull requests are suppressed regardless of who performed the
-merge; merely closed Renovate pull requests are retained.
-Marking a notification as done does not modify its pull request.
+Renovate pull requests are suppressed even without GitHub auto-merge, including
+major updates and pull requests closed without merging. Marking a notification
+as done does not modify its pull request.
 
 ## Setup
 

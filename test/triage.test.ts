@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   getActivitySuppressionReason as classifyActivities,
-  isOpenPullRequestByOtherAuthor,
+  isPullRequestByCurrentUser,
   isReleasePullRequest,
 } from "../src/triage";
 
@@ -105,45 +105,13 @@ describe("release pull request suppression", () => {
   });
 });
 
-describe("open pull request suppression by author", () => {
-  test("suppresses an open PR by another author", () => {
-    expect(
-      isOpenPullRequestByOtherAuthor({
-        authorId: humanId,
-        currentUserId,
-        owner: "jdx",
-        state: "open",
-      }),
-    ).toBe(true);
+describe("pull request suppression by author", () => {
+  test("suppresses a PR by the authenticated user", () => {
+    expect(isPullRequestByCurrentUser({ authorId: currentUserId, currentUserId })).toBe(true);
   });
 
-  test.each([
-    {
-      authorId: currentUserId,
-      currentUserId,
-      owner: "jdx",
-      state: "open",
-    },
-    {
-      authorId: humanId,
-      currentUserId,
-      owner: "jdx",
-      state: "closed",
-    },
-    {
-      authorId: humanId,
-      currentUserId,
-      owner: "risu729",
-      state: "open",
-    },
-    {
-      authorId: undefined,
-      currentUserId,
-      owner: "jdx",
-      state: "open",
-    },
-  ] as const)("retains non-match %#", (pullRequest) => {
-    expect(isOpenPullRequestByOtherAuthor(pullRequest)).toBe(false);
+  test.each([humanId, undefined])("retains another or unknown author %s", (authorId) => {
+    expect(isPullRequestByCurrentUser({ authorId, currentUserId })).toBe(false);
   });
 });
 
