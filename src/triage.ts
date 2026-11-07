@@ -987,7 +987,7 @@ const triageNotification = async (
       });
       return {
         notification: currentNotification,
-        outcome: "retained",
+        outcome: "retry_pending",
         ...(pullNumber === undefined ? {} : { pullNumber }),
         reason: "concurrently_updated",
         repository,

@@ -99,7 +99,10 @@ authenticated user also triggers suppression after the full window passes these
 checks. The thread is fetched again immediately before it is marked done to
 reduce the chance of hiding a concurrent update. GitHub does not provide a
 conditional mark-done operation, so a narrow race remains between those two
-requests.
+requests. If the recheck detects a concurrent update, the individual Queue
+message is retried with the existing backoff instead of being retained and
+acknowledged. This also covers read/unread changes that do not advance the
+notification's update timestamp.
 
 Comments and reviews by CodeRabbit, Codecov, Greptile, Sourcery,
 `mise-en-dev`, `BrewTestBot`, and `github-advanced-security[bot]` trigger
