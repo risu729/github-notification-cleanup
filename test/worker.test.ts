@@ -1411,6 +1411,74 @@ describe("notification Queue consumer", () => {
     });
   });
 
+  test.each(["updated_at", "last_read_at", "unread"] as const)(
+    "retries a notification after %s changes",
+    async (field) => {
+      const candidate: Notification = {
+        ...notification("1", 319),
+        repository: "jdx/packslip",
+        subjectUrl: "https://api.github.com/repos/jdx/packslip/pulls/319",
+      };
+      const initialThread = {
+        ...thread("1", 319),
+        repository: { full_name: candidate.repository },
+        subject: { title: candidate.subjectTitle, type: "PullRequest", url: candidate.subjectUrl },
+      };
+      const latestThread = {
+        ...initialThread,
+        [field]: field === "unread" ? true : "2026-08-04T00:03:00Z",
+      };
+      let reads = 0;
+      let markedDone = false;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        const pathname = new URL(request.url).pathname;
+        if (pathname === "/user") {
+          return response({ id: 79_110_363, login: "risu729" });
+        }
+        if (pathname === "/notifications/threads/1") {
+          if (request.method === "DELETE") {
+            markedDone = true;
+            return new Response(null, { status: 204 });
+          }
+          reads += 1;
+          return response(reads === 1 ? initialThread : latestThread);
+        }
+        if (pathname === "/repos/jdx/packslip/pulls/319") {
+          return response(pullRequest(319, { head: { ref: "release-plz" } }));
+        }
+        return response({ message: "unexpected test request" }, 500);
+      });
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const firstBatch = queueBatch([candidate]);
+
+      await worker.queue(firstBatch, env);
+
+      expect(markedDone).toBe(false);
+      const firstResult = await getQueueResult(firstBatch, createExecutionContext());
+      expect(firstResult.explicitAcks).toEqual([]);
+      expect(firstResult.retryMessages).toEqual([{ msgId: "message-0" }]);
+      const [firstRun] = await loadRuns();
+      expect(firstRun?.status).toBe("partial");
+      const secondBatch = queueBatch([candidate], 2);
+
+      await worker.queue(secondBatch, env);
+
+      expect(markedDone).toBe(true);
+      const secondResult = await getQueueResult(secondBatch, createExecutionContext());
+      expect(secondResult.explicitAcks).toEqual(["message-0"]);
+      expect(secondResult.retryMessages).toEqual([]);
+      const { results } = await env.DB.prepare(
+        "SELECT outcome, reason FROM cleanup_run_notifications ORDER BY id",
+      ).all<{ outcome: string; reason: string }>();
+      expect(results).toEqual([
+        { outcome: "retry_pending", reason: "concurrently_updated" },
+        { outcome: "marked_done", reason: "release_pull_request" },
+      ]);
+    },
+  );
+
   test("records and retries a transient notification failure", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url =
