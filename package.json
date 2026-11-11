@@ -11,7 +11,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.6.1",
     "@risu729/tsconfigs": "3.0.1",
-    "cf": "1.0.0-beta.28",
+    "cf": "1.0.0-beta.29",
     "vitest": "5.1.0",
     "wrangler": "4.159.0"
   }
