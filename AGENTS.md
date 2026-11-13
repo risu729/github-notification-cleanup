@@ -63,6 +63,8 @@ so a migration must keep the currently deployed Worker working.
 - Branches of merged PRs are deleted automatically. Delete branches of closed or
   abandoned PRs and other stale branches you created; leave `renovate/*`
   branches to Renovate.
+- Do not merge a PR in a repository outside the five listed in
+  [Related Repositories](#related-repositories) unless the owner says to.
 - Merging to `main` can deploy production (see [Deployment](#deployment)).
 
 ## Design Decisions
@@ -116,10 +118,26 @@ consume all three. The shared repositories also consume each other:
 renovate-config uses hk-config and tsconfigs, tsconfigs uses renovate-config and
 hk-config, and hk-config uses renovate-config.
 
+The shared configuration repositories also have consumers outside these five.
+Before changing one, follow its AGENTS.md.
+
 ## Renovate Pull Requests
 
-Monitoring open Renovate PRs in all five repositories listed above is part of
-maintaining them.
+Check open Renovate PRs in all five repositories listed above every day.
+
+Merge a Renovate PR by hand only when it is a major update, or a grouped PR
+containing one, that meets all of these conditions:
+
+- It needs no code or configuration change in this repository.
+- It brings no new feature that this repository would want to adopt.
+- It does not affect this repository, for example by changing the behavior of a
+  command, check or build output it relies on.
+
+Judge these from the release notes and changelog, and from the source at the
+new version when they are unclear, and follow the merge rules in
+[Change Workflow](#change-workflow). Do not merge any other Renovate PR by
+hand; Renovate automerges what its settings allow. When a major update fails a
+condition, do not change code for it; report to the owner what it would need.
 
 The [shared preset][preset] (consumers pin a release of it, so check the pinned
 tag when it differs from `main`) waits one day after a timestamped release
