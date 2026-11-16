@@ -1,7 +1,7 @@
 # ref: https://mise.jdx.dev/configuration.html
 #:schema https://mise.jdx.dev/schema/mise.json
 
-min_version = "2026.10.9"
+min_version = "2026.10.19"
 
 [tools]
 node = "26.13.1"
@@ -23,7 +23,6 @@ betterleaks = "v1.10.1"
 
 [settings]
 lockfile = true
-lockfile_mode = "generate"
 lockfile_platforms = ["linux-x64", "macos-arm64"]
 experimental = true
 
