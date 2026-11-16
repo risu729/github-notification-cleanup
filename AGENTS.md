@@ -67,6 +67,21 @@ so a migration must keep the currently deployed Worker working.
   [Related Repositories](#related-repositories) unless the owner says to.
 - Merging to `main` can deploy production (see [Deployment](#deployment)).
 
+## Configuration Defaults
+
+Do not set a configuration option to the value its tool already uses. Leave it
+unset unless the repository needs a different value. This applies to every tool
+configuration here, including `.github/renovate.json5`, `mise.toml`, `hk.pkl`,
+`tsconfig.json`, `vitest.config.ts` and `wrangler.config.ts`. Check the default
+in the tool's source at the version in use (see [External
+Tools](#external-tools)), not in its documentation.
+
+A value equal to the default is still needed when it overrides a different value
+from an extended preset or an earlier rule, for example a Renovate
+`packageRules` entry that restores a default changed by [the shared
+preset](https://github.com/risu729/renovate-config). Keep such a value and say
+in a comment what it overrides.
+
 ## Design Decisions
 
 Record every design decision in this repository. Nothing should live only in a
