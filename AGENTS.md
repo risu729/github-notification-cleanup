@@ -15,7 +15,7 @@ source text, and data whose exact wording is required for correctness.
 ## Development
 
 `mise install` installs the pinned tools, and mise installs Bun dependencies
-automatically (`[deps.bun]` in [`mise.toml`](mise.toml)).
+automatically (see [Dependencies](#dependencies)).
 
 | Task | Command |
 | --- | --- |
@@ -26,6 +26,23 @@ automatically (`[deps.bun]` in [`mise.toml`](mise.toml)).
 | Validate the build without uploading | `mise run worker:dry-run` |
 
 `check` and `test` first generate Worker types with `cf workers types`.
+
+### Dependencies
+
+Only the mise deps provider `[deps.bun]` in [`mise.toml`](mise.toml) installs
+the npm dependencies. With `auto = true`, `mise run` and `mise exec` run
+`bun install --frozen-lockfile` first and skip it while `bun.lock` and
+`package.json` are unchanged and `node_modules` exists, including in CI.
+
+- Keep the built-in provider and set only what differs from its defaults. Here
+  that is `auto` and the frozen `run`; the default sources and outputs already
+  match this repository.
+- Do not add an install task, an install command inside a task, or a CI step
+  such as `mise deps` or `bun install` before `mise run`. Run `mise deps`
+  explicitly only before a step that needs `node_modules` without going through
+  mise, or before a step that runs with `--no-deps`.
+- `[deps]` is experimental in mise, so `experimental = true` stays in
+  `[settings]` while the repository uses it.
 
 ## Deployment
 
