@@ -46,7 +46,7 @@ jobs:
       - name: Build Worker
         run: mise run worker:build
       - name: Validate Worker deployment
-        uses: risu729/wrangler-deploy-action@a371aa836e01c95d3928ba1a62b052229c7184c2 # v3.0.3
+        uses: risu729/wrangler-deploy-action@34db835bd1adce655ab75e7b9ce9b2a73b19bfc9 # v3.2.0
         with:
           mode: dry-run
           worker: github-notification-cleanup
@@ -62,7 +62,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: mise run worker:migrate
       - name: Deploy Worker
-        uses: risu729/wrangler-deploy-action@a371aa836e01c95d3928ba1a62b052229c7184c2 # v3.0.3
+        uses: risu729/wrangler-deploy-action@34db835bd1adce655ab75e7b9ce9b2a73b19bfc9 # v3.2.0
         with:
           mode: production
           worker: github-notification-cleanup
