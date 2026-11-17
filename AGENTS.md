@@ -30,8 +30,8 @@ automatically (see [Dependencies](#dependencies)).
 ### Dependencies
 
 Only the mise deps provider `[deps.bun]` in [`mise.toml`](mise.toml) installs
-the `package.json` dependencies. With `auto = true`, `mise run` and `mise exec` run
-`bun install --frozen-lockfile` first and skip it while `bun.lock` and
+the `package.json` dependencies. With `auto = true`, `mise run` and `mise exec`
+run `bun install --frozen-lockfile` first and skip it while `bun.lock` and
 `package.json` are unchanged and `node_modules` exists, including in CI.
 
 - Keep the built-in provider and set only what differs from its defaults. Here
