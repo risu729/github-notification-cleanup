@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import testConfig from "../test/wrangler.jsonc";
 
 const worker = JSON.parse(
-  readFileSync(".cloudflare/output/v0/workers/default/worker.config.json", "utf8"),
+  readFileSync(".cloudflare/output/v1/workers/default/worker.config.json", "utf8"),
 );
 
 // The current Vitest pool reads Wrangler configuration. Fail the build if its
