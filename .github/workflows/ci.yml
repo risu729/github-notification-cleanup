@@ -32,6 +32,9 @@ jobs:
           version: 2026.11.8
       - name: Run check
         run: mise run check --lint
+        env:
+          # pinact verifies action version comments through the GitHub API.
+          GITHUB_TOKEN: ${{ github.token }}
   test:
     name: Test
     runs-on: ubuntu-26.04
