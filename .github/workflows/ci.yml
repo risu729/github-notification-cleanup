@@ -70,7 +70,7 @@ jobs:
       - name: Build Worker
         run: mise run worker:build
       - name: Validate Worker deployment
-        uses: risu729/wrangler-deploy-action@1a774cd87332038bddbc817ce87efe170681dc1b # v4.0.0
+        uses: risu729/wrangler-deploy-action@52b0bb0f6c0969897cb84b47f4d5ebc3650f2d0c # v4.0.1
         with:
           mode: dry-run
           worker: github-notification-cleanup
