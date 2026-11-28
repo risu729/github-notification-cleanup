@@ -9,10 +9,10 @@
     "uuid": "14.0.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.9.2",
+    "@cloudflare/vitest-plugin": "1.10.0",
     "@risu729/tsconfigs": "3.0.1",
     "cf": "1.0.0-rc.6",
     "vitest": "5.1.2",
-    "wrangler": "4.168.0"
+    "wrangler": "4.169.0"
   }
 }
